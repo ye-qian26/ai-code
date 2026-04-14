@@ -1,38 +1,33 @@
 <template>
-  <div id="appChatPage">
+  <div class="app-chat-page">
     <!-- 顶部栏 -->
     <div class="header-bar">
       <div class="header-left">
         <h1 class="app-name">{{ appInfo?.appName || '网站生成器' }}</h1>
-        <a-tag v-if="appInfo?.codeGenType" color="blue" class="code-gen-type-tag">
+        <a-tag v-if="appInfo?.codeGenType" color="processing">
           {{ formatCodeGenType(appInfo.codeGenType) }}
         </a-tag>
       </div>
       <div class="header-right">
-        <a-button type="default" @click="showAppDetail">
-          <template #icon>
-            <InfoCircleOutlined />
-          </template>
-          应用详情
-        </a-button>
-        <a-button
-            type="primary"
-            ghost
+        <a-space>
+          <a-button type="text" @click="showAppDetail">
+            <template #icon><InfoCircleOutlined /></template>
+            详情
+          </a-button>
+          <a-button
+            v-if="isOwner"
+            type="default"
             @click="downloadCode"
             :loading="downloading"
-            :disabled="!isOwner"
-        >
-          <template #icon>
-            <DownloadOutlined />
-          </template>
-          下载代码
-        </a-button>
-        <a-button type="primary" @click="deployApp" :loading="deploying">
-          <template #icon>
-            <CloudUploadOutlined />
-          </template>
-          部署
-        </a-button>
+          >
+            <template #icon><DownloadOutlined /></template>
+            源码
+          </a-button>
+          <a-button type="primary" @click="deployApp" :loading="deploying">
+            <template #icon><CloudUploadOutlined /></template>
+            发布
+          </a-button>
+        </a-space>
       </div>
     </div>
 
@@ -40,152 +35,130 @@
     <div class="main-content">
       <!-- 左侧对话区域 -->
       <div class="chat-section">
-        <!-- 消息区域 -->
-        <div class="messages-container" ref="messagesContainer">
-          <!-- 加载更多按钮 -->
-          <div v-if="hasMoreHistory" class="load-more-container">
-            <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
-              加载更多历史消息
-            </a-button>
+        <div class="section-header">
+          <h3>AI 助手对话</h3>
+          <div class="header-actions">
+            <a-tag v-if="isOwner" color="success">所有者模式</a-tag>
           </div>
-          <div v-for="(message, index) in messages" :key="index" class="message-item">
-            <div v-if="message.type === 'user'" class="user-message">
-              <div class="message-content">{{ message.content }}</div>
-              <div class="message-avatar">
-                <a-avatar :src="loginUserStore.loginUser.userAvatar" />
-              </div>
+        </div>
+        <div class="chat-card">
+          <!-- 消息区域 -->
+          <div class="messages-container" ref="messagesContainer">
+            <!-- 加载更多按钮 -->
+            <div v-if="hasMoreHistory" class="load-more-container">
+              <a-button type="link" @click="loadMoreHistory" :loading="loadingHistory" size="small">
+                加载更多历史消息
+              </a-button>
             </div>
-            <div v-else class="ai-message">
-              <div class="message-avatar">
-                <a-avatar :src="aiAvatar" />
+            <div v-for="(message, index) in messages" :key="index" class="message-item">
+              <div v-if="message.type === 'user'" class="user-message">
+                <div class="message-content">{{ message.content }}</div>
+                <div class="message-avatar">
+                  <a-avatar :src="loginUserStore.loginUser.userAvatar" />
+                </div>
               </div>
-              <div class="message-content">
-                <MarkdownRenderer v-if="message.content" :content="message.content" />
-                <div v-if="message.loading" class="loading-indicator">
-                  <a-spin size="small" />
-                  <span>AI 正在思考...</span>
+              <div v-else class="ai-message">
+                <div class="message-avatar">
+                  <a-avatar :src="aiAvatar" />
+                </div>
+                <div class="message-content">
+                  <MarkdownRenderer v-if="message.content" :content="message.content" />
+                  <div v-if="message.loading" class="loading-indicator">
+                    <a-spin size="small" />
+                    <span>AI 正在思考...</span>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <!-- 选中元素信息展示 -->
-        <a-alert
+          <!-- 选中元素信息展示 -->
+          <a-alert
             v-if="selectedElementInfo"
             class="selected-element-alert"
             type="info"
             closable
             @close="clearSelectedElement"
-        >
-          <template #message>
-            <div class="selected-element-info">
-              <div class="element-header">
-                <span class="element-tag">
-                  选中元素：{{ selectedElementInfo.tagName.toLowerCase() }}
-                </span>
-                <span v-if="selectedElementInfo.id" class="element-id">
-                  #{{ selectedElementInfo.id }}
-                </span>
-                <span v-if="selectedElementInfo.className" class="element-class">
-                  .{{ selectedElementInfo.className.split(' ').join('.') }}
-                </span>
-              </div>
-              <div class="element-details">
-                <div v-if="selectedElementInfo.textContent" class="element-item">
-                  内容: {{ selectedElementInfo.textContent.substring(0, 50) }}
-                  {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
+          >
+            <template #message>
+              <div class="selected-element-info">
+                <div class="element-header">
+                  <span class="element-tag">选中：{{ selectedElementInfo.tagName.toLowerCase() }}</span>
+                  <span v-if="selectedElementInfo.id" class="element-id">#{{ selectedElementInfo.id }}</span>
                 </div>
-                <div v-if="selectedElementInfo.pagePath" class="element-item">
-                  页面路径: {{ selectedElementInfo.pagePath }}
-                </div>
-                <div class="element-item">
-                  选择器:
+                <div class="element-details">
                   <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
                 </div>
               </div>
-            </div>
-          </template>
-        </a-alert>
+            </template>
+          </a-alert>
 
-        <!-- 用户消息输入框 -->
-        <div class="input-container">
-          <div class="input-wrapper">
-            <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
+          <!-- 用户消息输入框 -->
+          <div class="input-container">
+            <div class="input-wrapper">
               <a-textarea
-                  v-model:value="userInput"
-                  :placeholder="getInputPlaceholder()"
-                  :rows="4"
-                  :maxlength="1000"
-                  @keydown.enter.prevent="sendMessage"
-                  :disabled="isGenerating || !isOwner"
-              />
-            </a-tooltip>
-            <a-textarea
-                v-else
                 v-model:value="userInput"
                 :placeholder="getInputPlaceholder()"
-                :rows="4"
+                :rows="3"
                 :maxlength="1000"
                 @keydown.enter.prevent="sendMessage"
-                :disabled="isGenerating"
-            />
-            <div class="input-actions">
-              <a-button
+                :disabled="isGenerating || (!isOwner && loginUserStore.loginUser.id !== appInfo?.userId)"
+              />
+              <div class="input-actions">
+                <a-button
                   type="primary"
+                  shape="circle"
                   @click="sendMessage"
                   :loading="isGenerating"
-                  :disabled="!isOwner"
-              >
-                <template #icon>
-                  <SendOutlined />
-                </template>
-              </a-button>
+                  :disabled="!isOwner && loginUserStore.loginUser.id !== appInfo?.userId"
+                >
+                  <template #icon><SendOutlined /></template>
+                </a-button>
+              </div>
             </div>
           </div>
         </div>
       </div>
+
       <!-- 右侧网页展示区域 -->
       <div class="preview-section">
-        <div class="preview-header">
-          <h3>生成后的网页展示</h3>
-          <div class="preview-actions">
-            <a-button
+        <div class="section-header">
+          <h3>生成结果预览</h3>
+          <div class="header-actions">
+            <a-space size="small">
+              <a-button
                 v-if="isOwner && previewUrl"
-                type="link"
+                type="text"
+                size="small"
                 :danger="isEditMode"
                 @click="toggleEditMode"
                 :class="{ 'edit-mode-active': isEditMode }"
-                style="padding: 0; height: auto; margin-right: 12px"
-            >
-              <template #icon>
-                <EditOutlined />
-              </template>
-              {{ isEditMode ? '退出编辑' : '编辑模式' }}
-            </a-button>
-            <a-button v-if="previewUrl" type="link" @click="openInNewTab">
-              <template #icon>
-                <ExportOutlined />
-              </template>
-              新窗口打开
-            </a-button>
+              >
+                <template #icon><EditOutlined /></template>
+                {{ isEditMode ? '退出编辑' : '编辑模式' }}
+              </a-button>
+              <a-button v-if="previewUrl" type="text" size="small" @click="openInNewTab">
+                <template #icon><ExportOutlined /></template>
+                新窗口
+              </a-button>
+            </a-space>
           </div>
         </div>
-        <div class="preview-content">
+        <div class="preview-card">
           <div v-if="!previewUrl && !isGenerating" class="preview-placeholder">
             <div class="placeholder-icon">🌐</div>
-            <p>网站文件生成完成后将在这里展示</p>
+            <p>网站生成后在此预览</p>
           </div>
           <div v-else-if="isGenerating" class="preview-loading">
             <a-spin size="large" />
-            <p>正在生成网站...</p>
+            <p>正在努力生成中...</p>
           </div>
           <iframe
-              v-else
-              :src="previewUrl"
-              class="preview-iframe"
-              frameborder="0"
-              @load="onIframeLoad"
+            v-else
+            :src="previewUrl"
+            class="preview-iframe"
+            frameborder="0"
+            @load="onIframeLoad"
           ></iframe>
         </div>
       </div>
@@ -770,24 +743,24 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-#appChatPage {
-  height: 100vh;
+.app-chat-page {
   display: flex;
   flex-direction: column;
-  padding: 16px;
-  background: linear-gradient(135deg, #fef9f3 0%, #fce7d6 100%);
+  height: calc(100vh - 72px);
+  background-color: var(--bg-color);
+  overflow: hidden;
 }
 
-/* 顶部栏 */
 .header-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(230, 126, 34, 0.1);
-  margin-bottom: 16px;
+  padding: 0 32px;
+  background: white;
+  border-bottom: 1px solid var(--border-color);
+  z-index: 100;
+  height: 64px;
+  flex-shrink: 0;
 }
 
 .header-left {
@@ -796,304 +769,247 @@ onUnmounted(() => {
   gap: 12px;
 }
 
-.code-gen-type-tag {
-  font-size: 12px;
-  background: #e67e22;
-  color: white;
-}
-
 .app-name {
   margin: 0;
   font-size: 18px;
-  font-weight: 600;
-  color: #2d3436;
+  font-weight: 700;
+  color: var(--text-main);
+  letter-spacing: -0.5px;
 }
 
-.header-right {
-  display: flex;
-  gap: 12px;
-}
-
-/* 主要内容区域 */
 .main-content {
-  flex: 1;
   display: flex;
-  gap: 16px;
-  padding: 8px;
+  flex: 1;
   overflow: hidden;
+  background: var(--secondary-bg);
+  padding: 20px 24px;
+  gap: 24px;
 }
 
-/* 左侧对话区域 */
-.chat-section {
-  flex: 2;
+.chat-section,
+.preview-section {
   display: flex;
   flex-direction: column;
-  background: rgba(255, 255, 255, 0.98);
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(230, 126, 34, 0.12);
-  border: 2px solid rgba(230, 126, 34, 0.15);
-  overflow: hidden;
+  height: 100%;
+  min-width: 0; /* 关键：防止 flex 子元素溢出 */
 }
 
+.chat-section {
+  flex: 1;
+  max-width: 560px;
+}
+
+.preview-section {
+  flex: 1.8;
+}
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 0 4px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.section-header h3 {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+.chat-card,
+.preview-card {
+  flex: 1;
+  background: white;
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+/* 对话框容器 */
 .messages-container {
-  flex: 0.9;
-  padding: 16px;
+  flex: 1;
   overflow-y: auto;
-  scroll-behavior: smooth;
+  overflow-x: hidden; /* 强制隐藏横向滚动 */
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  background: #fafafa;
 }
 
 .message-item {
-  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
 }
 
 .user-message {
+  align-self: flex-end;
   display: flex;
-  justify-content: flex-end;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.ai-message {
-  display: flex;
-  justify-content: flex-start;
-  align-items: flex-start;
-  gap: 8px;
-}
-
-.message-content {
-  max-width: 70%;
-  padding: 12px 16px;
-  border-radius: 16px;
-  line-height: 1.5;
-  word-wrap: break-word;
+  gap: 12px;
+  max-width: 85%;
+  flex-direction: row;
 }
 
 .user-message .message-content {
-  background: linear-gradient(135deg, #e67e22 0%, #d35400 100%);
+  background: var(--primary-color);
   color: white;
+  padding: 12px 18px;
+  border-radius: 20px 20px 4px 20px;
+  font-size: 15px;
+  line-height: 1.5;
+  box-shadow: 0 4px 12px rgba(0, 102, 255, 0.15);
+  word-break: break-word;
+}
+
+.ai-message {
+  align-self: flex-start;
+  display: flex;
+  gap: 12px;
+  max-width: 95%;
+  flex-direction: row;
 }
 
 .ai-message .message-content {
-  background: linear-gradient(135deg, #fef3e2 0%, #f9d5b8 100%);
-  color: #2d3436;
-  padding: 8px 12px;
-  border: 1px solid rgba(230, 126, 34, 0.2);
+  background: white;
+  color: var(--text-main);
+  padding: 18px;
+  border-radius: 20px 20px 20px 4px;
+  font-size: 15px;
+  line-height: 1.6;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  width: 100%;
+  overflow-x: hidden; /* 防止 Markdown 内容溢出 */
 }
 
-.message-avatar {
+/* 输入区域 */
+.input-container {
+  padding: 20px 24px;
+  background: white;
+  border-top: 1px solid var(--border-color);
   flex-shrink: 0;
+}
+
+.input-wrapper {
+  position: relative;
+  background: var(--secondary-bg);
+  border-radius: 16px;
+  padding: 12px;
+  transition: var(--transition-base);
+  border: 1px solid transparent;
+}
+
+.input-wrapper:focus-within {
+  background: white;
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 4px rgba(0, 102, 255, 0.05);
+}
+
+.input-wrapper :deep(textarea) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  padding: 4px 40px 4px 8px;
+  resize: none;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-main);
+}
+
+.input-actions {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+}
+
+/* 预览区域 */
+.preview-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: white;
+}
+
+.preview-placeholder,
+.preview-loading {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  text-align: center;
+  padding: 40px;
+  background: #fafafa;
+}
+
+.placeholder-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.2;
 }
 
 .loading-indicator {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #636e72;
-}
-
-/* 加载更多按钮 */
-.load-more-container {
-  text-align: center;
-  padding: 8px 0;
-  margin-bottom: 16px;
-}
-
-/* 输入区域 */
-.input-container {
-  padding: 16px;
-  background: rgba(255, 255, 255, 0.95);
-}
-
-.input-wrapper {
-  position: relative;
-}
-
-.input-wrapper .ant-input {
-  padding-right: 50px;
-  border-radius: 12px;
-  border: 2px solid rgba(230, 126, 34, 0.2);
-}
-
-.input-wrapper .ant-input:focus {
-  border-color: #e67e22;
-}
-
-.input-actions {
-  position: absolute;
-  bottom: 8px;
-  right: 8px;
-}
-
-/* 右侧预览区域 */
-.preview-section {
-  flex: 3;
-  display: flex;
-  flex-direction: column;
-  background: rgba(255, 255, 255, 0.98);
-  border-radius: 16px;
-  box-shadow: 0 4px 20px rgba(230, 126, 34, 0.12);
-  border: 2px solid rgba(230, 126, 34, 0.15);
-  overflow: hidden;
-}
-
-.preview-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 16px;
-  border-bottom: 2px solid rgba(230, 126, 34, 0.15);
-  background: linear-gradient(135deg, #fef3e2 0%, #f9d5b8 100%);
-}
-
-.preview-header h3 {
-  margin: 0;
-  font-size: 16px;
-  font-weight: 600;
-  color: #2d3436;
-}
-
-.preview-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.preview-content {
-  flex: 1;
-  position: relative;
-  overflow: hidden;
-}
-
-.preview-placeholder {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #636e72;
-}
-
-.placeholder-icon {
-  font-size: 48px;
-  margin-bottom: 16px;
-}
-
-.preview-loading {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  color: #636e72;
-}
-
-.preview-loading p {
-  margin-top: 16px;
-}
-
-.preview-iframe {
-  width: 100%;
-  height: 100%;
-  border: none;
+  margin-top: 12px;
+  color: var(--text-secondary);
+  font-size: 13px;
 }
 
 .selected-element-alert {
-  margin: 0 16px;
+  margin: 0 24px 12px;
+  border-radius: 12px;
+  border: 1px solid #bae7ff;
+  background-color: #e6f7ff;
 }
 
-/* 响应式设计 */
-@media (max-width: 1024px) {
-  .main-content {
-    flex-direction: column;
-  }
-
-  .chat-section,
-  .preview-section {
-    flex: none;
-    height: 50vh;
-  }
+.selected-element-info {
+  font-size: 13px;
 }
 
-@media (max-width: 768px) {
-  .header-bar {
-    padding: 12px 16px;
-  }
+.element-tag {
+  font-weight: 700;
+  color: var(--primary-color);
+  margin-right: 8px;
+}
 
-  .app-name {
-    font-size: 16px;
-  }
+.element-id {
+  color: #ff4d4f;
+  font-family: monospace;
+}
 
-  .main-content {
-    padding: 8px;
-    gap: 8px;
-  }
+.element-selector-code {
+  display: block;
+  margin-top: 4px;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: monospace;
+  font-size: 11px;
+  color: #555;
+}
 
-  .message-content {
-    max-width: 85%;
-  }
+.edit-mode-active {
+  background: #fff1f0 !important;
+  color: #ff4d4f !important;
+  font-weight: 700;
+}
 
-  /* 选中元素信息样式 */
-  .selected-element-alert {
-    margin: 0 16px;
-  }
-
-  .selected-element-info {
-    line-height: 1.4;
-  }
-
-  .element-header {
-    margin-bottom: 8px;
-  }
-
-  .element-details {
-    margin-top: 8px;
-  }
-
-  .element-item {
-    margin-bottom: 4px;
-    font-size: 13px;
-  }
-
-  .element-item:last-child {
-    margin-bottom: 0;
-  }
-
-  .element-tag {
-    font-family: 'Monaco', 'Menlo', monospace;
-    font-size: 14px;
-    font-weight: 600;
-    color: #e67e22;
-  }
-
-  .element-id {
-    color: #27ae60;
-    margin-left: 4px;
-  }
-
-  .element-class {
-    color: #f39c12;
-    margin-left: 4px;
-  }
-
-  .element-selector-code {
-    font-family: 'Monaco', 'Menlo', monospace;
-    background: #fef3e2;
-    padding: 2px 4px;
-    border-radius: 3px;
-    font-size: 12px;
-    color: #c0392b;
-    border: 1px solid rgba(230, 126, 34, 0.3);
-  }
-
-  /* 编辑模式按钮样式 */
-  .edit-mode-active {
-    background-color: #e67e22 !important;
-    border-color: #e67e22 !important;
-    color: white !important;
-  }
-
-  .edit-mode-active:hover {
-    background-color: #d35400 !important;
-    border-color: #d35400 !important;
-  }
+.load-more-container {
+  text-align: center;
+  margin-bottom: 8px;
 }
 </style>

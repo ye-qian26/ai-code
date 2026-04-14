@@ -1,14 +1,25 @@
 <template>
-  <div class="app-card" :class="{ 'app-card--featured': featured }">
+  <div class="app-card" @click="handleViewChat">
+    <div v-if="featured" class="featured-badge">精选</div>
     <div class="app-preview">
       <img v-if="app.cover" :src="app.cover" :alt="app.appName" />
       <div v-else class="app-placeholder">
         <span>🤖</span>
       </div>
       <div class="app-overlay">
-        <a-space>
-          <a-button type="primary" @click="handleViewChat">查看对话</a-button>
-          <a-button v-if="app.deployKey" type="default" @click="handleViewWork">查看作品</a-button>
+        <a-space size="middle">
+          <a-button type="primary" shape="round" @click.stop="handleViewChat">
+            立即体验
+          </a-button>
+          <a-button
+            v-if="app.deployKey"
+            type="default"
+            ghost
+            shape="round"
+            @click.stop="handleViewWork"
+          >
+            查看作品
+          </a-button>
         </a-space>
       </div>
     </div>
@@ -21,7 +32,7 @@
       <div class="app-info-right">
         <h3 class="app-title">{{ app.appName || '未命名应用' }}</h3>
         <p class="app-author">
-          {{ app.user?.userName || (featured ? '官方' : '未知用户') }}
+          {{ app.user?.userName || (featured ? '官方推荐' : '未知用户') }}
         </p>
       </div>
     </div>
@@ -56,28 +67,25 @@ const handleViewWork = () => {
 
 <style scoped>
 .app-card {
-  background: rgba(255, 255, 255, 0.98);
-  border-radius: 20px;
+  background: var(--bg-color);
+  border-radius: 24px;
   overflow: hidden;
-  box-shadow: 0 4px 20px rgba(230, 126, 34, 0.12);
-  border: 2px solid rgba(230, 126, 34, 0.15);
-  transition: transform 0.3s, box-shadow 0.3s;
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-color);
+  transition: var(--transition-base);
   cursor: pointer;
+  position: relative;
 }
 
 .app-card:hover {
-  transform: translateY(-6px);
-  box-shadow: 0 8px 30px rgba(230, 126, 34, 0.25);
-}
-
-.app-card--featured {
-  border-color: rgba(211, 84, 0, 0.3);
-  box-shadow: 0 6px 25px rgba(211, 84, 0, 0.18);
+  transform: translateY(-8px);
+  box-shadow: var(--hover-shadow);
+  border-color: var(--primary-color);
 }
 
 .app-preview {
-  height: 180px;
-  background: linear-gradient(135deg, #fef3e2 0%, #f9d5b8 100%);
+  height: 200px;
+  background: var(--secondary-bg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -89,11 +97,16 @@ const handleViewWork = () => {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  transition: transform 0.5s ease;
+}
+
+.app-card:hover .app-preview img {
+  transform: scale(1.05);
 }
 
 .app-placeholder {
-  font-size: 48px;
-  color: #e67e22;
+  font-size: 56px;
+  opacity: 0.8;
 }
 
 .app-overlay {
@@ -102,12 +115,13 @@ const handleViewWork = () => {
   left: 0;
   right: 0;
   bottom: 0;
-  background: rgba(230, 126, 34, 0.6);
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
   display: flex;
   align-items: center;
   justify-content: center;
   opacity: 0;
-  transition: opacity 0.3s;
+  transition: var(--transition-base);
 }
 
 .app-card:hover .app-overlay {
@@ -115,10 +129,10 @@ const handleViewWork = () => {
 }
 
 .app-info {
-  padding: 16px;
+  padding: 20px;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
 }
 
 .app-info-left {
@@ -126,26 +140,38 @@ const handleViewWork = () => {
 }
 
 .app-info-right {
-  flex: 1;
-  min-width: 0;
+  flex-grow: 1;
+  overflow: hidden;
 }
 
 .app-title {
-  font-size: 16px;
-  font-weight: 600;
-  margin: 0 0 4px;
-  color: #2d3436;
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .app-author {
+  margin: 4px 0 0;
   font-size: 14px;
-  color: #636e72;
-  margin: 0;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.featured-badge {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  background: var(--primary-color);
+  color: white;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  z-index: 10;
+  box-shadow: 0 4px 12px rgba(0, 102, 255, 0.3);
 }
 </style>

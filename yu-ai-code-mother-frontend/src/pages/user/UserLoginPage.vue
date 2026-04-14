@@ -1,28 +1,47 @@
 <template>
-  <div id="userLoginPage">
-    <h2 class="title">鱼皮 AI 应用生成 - 用户登录</h2>
-    <div class="desc">不写一行代码，生成完整应用</div>
-    <a-form :model="formState" name="basic" autocomplete="off" @finish="handleSubmit">
-      <a-form-item name="userAccount" :rules="[{ required: true, message: '请输入账号' }]">
-        <a-input v-model:value="formState.userAccount" placeholder="请输入账号" />
-      </a-form-item>
-      <a-form-item
-        name="userPassword"
-        :rules="[
-          { required: true, message: '请输入密码' },
-          { min: 8, message: '密码长度不能小于 8 位' },
-        ]"
-      >
-        <a-input-password v-model:value="formState.userPassword" placeholder="请输入密码" />
-      </a-form-item>
-      <div class="tips">
-        没有账号
-        <RouterLink to="/user/register">去注册</RouterLink>
+  <div class="user-auth-page">
+    <div class="auth-card">
+      <div class="auth-header">
+        <img class="logo" src="@/assets/touxiang.jpg" alt="Logo" />
+        <h2 class="title">欢迎回来</h2>
+        <p class="desc">不写一行代码，生成完整应用</p>
       </div>
-      <a-form-item>
-        <a-button type="primary" html-type="submit" style="width: 100%">登录</a-button>
-      </a-form-item>
-    </a-form>
+
+      <a-form :model="formState" name="basic" layout="vertical" @finish="handleSubmit">
+        <a-form-item
+          label="账号"
+          name="userAccount"
+          :rules="[{ required: true, message: '请输入账号' }]"
+        >
+          <a-input v-model:value="formState.userAccount" placeholder="您的账号" size="large" />
+        </a-form-item>
+
+        <a-form-item
+          label="密码"
+          name="userPassword"
+          :rules="[
+            { required: true, message: '请输入密码' },
+            { min: 8, message: '密码长度不能小于 8 位' },
+          ]"
+        >
+          <a-input-password
+            v-model:value="formState.userPassword"
+            placeholder="您的密码"
+            size="large"
+          />
+        </a-form-item>
+
+        <div class="auth-footer">
+          <RouterLink to="/user/register">还没有账号？立即注册</RouterLink>
+        </div>
+
+        <a-form-item>
+          <a-button type="primary" html-type="submit" size="large" block class="submit-btn">
+            登录
+          </a-button>
+        </a-form-item>
+      </a-form>
+    </div>
   </div>
 </template>
 <script lang="ts" setup>
@@ -61,38 +80,71 @@ const handleSubmit = async (values: any) => {
 </script>
 
 <style scoped>
-#userLoginPage {
-  background: linear-gradient(135deg, #fff 0%, #fef9f3 100%);
-  max-width: 480px;
-  padding: 32px;
-  margin: 80px auto;
-  border-radius: 20px;
-  box-shadow: 0 8px 30px rgba(230, 126, 34, 0.15);
-  border: 2px solid rgba(230, 126, 34, 0.2);
+.user-auth-page {
+  min-height: calc(100vh - 72px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: radial-gradient(circle at 50% 50%, #e6f0ff 0%, #ffffff 100%);
+  padding: 20px;
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 440px;
+  padding: 48px;
+  background: white;
+  border-radius: 32px;
+  box-shadow: var(--hover-shadow);
+  border: 1px solid var(--border-color);
+}
+
+.auth-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.logo {
+  height: 64px;
+  width: 64px;
+  margin-bottom: 24px;
 }
 
 .title {
-  text-align: center;
-  margin-bottom: 16px;
-  color: #2d3436;
-  font-weight: 600;
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 8px;
+  letter-spacing: -0.5px;
 }
 
 .desc {
-  text-align: center;
-  color: #636e72;
-  margin-bottom: 24px;
-  font-size: 15px;
+  color: var(--text-secondary);
+  font-size: 16px;
+  margin: 0;
 }
 
-.tips {
+:deep(.ant-form-item-label > label) {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.auth-footer {
   text-align: right;
-  color: #636e72;
-  font-size: 13px;
-  margin-bottom: 16px;
+  margin-bottom: 24px;
+  font-size: 14px;
 }
 
-.tips a {
-  color: #e67e22;
+.auth-footer a {
+  color: var(--primary-color);
+  font-weight: 500;
+}
+
+.submit-btn {
+  height: 50px;
+  font-size: 16px;
+  font-weight: 700;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(0, 102, 255, 0.2) !important;
 }
 </style>
