@@ -24,6 +24,7 @@ import com.yupi.yuaicodemother.service.UserService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
@@ -44,6 +45,7 @@ import java.util.Map;
  * @author <a href="https://github.com/liyupi">程序员鱼皮</a>
  */
 @RestController
+@Slf4j
 @RequestMapping("/app")
 public class AppController {
 
@@ -69,6 +71,12 @@ public class AppController {
         // 调用服务生成代码（SSE 流式返回）
         Flux<String> contentFlux = appService.chatToGenCode(appId, message, loginUser);
         return contentFlux
+                .onErrorResume(error -> {
+                    log.error("SSE 流式输出错误", error);
+                    String errorJson = JSONUtil.toJsonStr(Map.of("error", true, "message", error.getMessage()));
+                    return Flux.just(errorJson);
+                })
+                .retry(2)
                 .map(chunk -> {
                     Map<String, String> wrapper = Map.of("d", chunk);
                     String jsonData = JSONUtil.toJsonStr(wrapper);

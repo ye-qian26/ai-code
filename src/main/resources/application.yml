@@ -23,7 +23,7 @@ spring:
   profiles:
     active: local
 server:
-  port: 8123
+  port: 8081
   servlet:
     context-path: /api
     # cookie 30 天过期
@@ -54,6 +54,9 @@ langchain4j:
       log-requests: true
       log-responses: true
       max-retries: 3
+      timeout: 300s
+      connect-timeout: 60s
+      read-timeout: 300s
     streaming-chat-model:
       base-url: ${DASHSCOPE_BASE_URL}
       api-key: ${DASHSCOPE_API_KEY}
@@ -61,6 +64,9 @@ langchain4j:
       max-tokens: 8192
       log-requests: true
       log-responses: true
+      timeout: 300s
+      connect-timeout: 60s
+      read-timeout: 300s
     # 推理 AI 模型配置（用于复杂的推理任务）
     reasoning-streaming-chat-model:
       base-url: ${DASHSCOPE_BASE_URL}
@@ -70,6 +76,9 @@ langchain4j:
       temperature: 0.1
       log-requests: true
       log-responses: true
+      timeout: 600s
+      connect-timeout: 60s
+      read-timeout: 600s
     # 智能路由 AI 模型配置（用于简单的分类任务）
     routing-chat-model:
       base-url: ${DASHSCOPE_BASE_URL}
@@ -78,6 +87,9 @@ langchain4j:
       max-tokens: 100
       log-requests: true
       log-responses: true
+      timeout: 60s
+      connect-timeout: 30s
+      read-timeout: 60s
 # 添加 COS 对象存储配置（需要从腾讯云获取）
 cos:
   client:

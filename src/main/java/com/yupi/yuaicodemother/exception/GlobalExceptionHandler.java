@@ -57,6 +57,12 @@ public class GlobalExceptionHandler {
         }
         HttpServletRequest request = attributes.getRequest();
         HttpServletResponse response = attributes.getResponse();
+        if (response == null) {
+            return false;
+        }
+        if (response.isCommitted()) {
+            return false;
+        }
         // 判断是否是SSE请求（通过Accept头或URL路径）
         String accept = request.getHeader("Accept");
         String uri = request.getRequestURI();
