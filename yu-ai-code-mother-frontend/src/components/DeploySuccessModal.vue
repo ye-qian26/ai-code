@@ -1,23 +1,31 @@
 <template>
-  <a-modal v-model:open="visible" title="部署成功" :footer="null" width="600px">
+  <a-modal v-model:open="visible" title="部署成功" :footer="null" centered width="480px">
     <div class="deploy-success">
       <div class="success-icon">
-        <CheckCircleOutlined style="color: #52c41a; font-size: 48px" />
+        <div class="icon-wrapper">
+          <CheckOutlined />
+        </div>
       </div>
-      <h3>网站部署成功！</h3>
-      <p>你的网站已经成功部署，可以通过以下链接访问：</p>
-      <div class="deploy-url">
-        <a-input :value="deployUrl" readonly>
-          <template #suffix>
-            <a-button type="text" @click="handleCopyUrl">
-              <CopyOutlined />
-            </a-button>
-          </template>
-        </a-input>
+      <h3 class="success-title">发布成功</h3>
+      <p class="success-desc">您的网站已成功部署到云端，现在可以向全世界分享了！</p>
+      
+      <div class="url-card">
+        <div class="url-label">访问链接</div>
+        <div class="url-content">
+          <span class="url-text">{{ deployUrl }}</span>
+          <a-button type="text" size="small" @click="handleCopyUrl" class="copy-btn">
+            <template #icon><CopyOutlined /></template>
+          </a-button>
+        </div>
       </div>
+
       <div class="deploy-actions">
-        <a-button type="primary" @click="handleOpenSite">访问网站</a-button>
-        <a-button @click="handleClose">关闭</a-button>
+        <a-button type="primary" size="large" block @click="handleOpenSite" class="open-btn">
+          立即访问
+        </a-button>
+        <a-button type="text" size="large" block @click="handleClose" class="close-btn">
+          返回编辑器
+        </a-button>
       </div>
     </div>
   </a-modal>
@@ -26,7 +34,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { message } from 'ant-design-vue'
-import { CheckCircleOutlined, CopyOutlined } from '@ant-design/icons-vue'
+import { CheckOutlined, CopyOutlined } from '@ant-design/icons-vue'
 
 interface Props {
   open: boolean
@@ -49,9 +57,8 @@ const visible = computed({
 const handleCopyUrl = async () => {
   try {
     await navigator.clipboard.writeText(props.deployUrl)
-    message.success('链接已复制到剪贴板')
+    message.success('链接已复制')
   } catch (error) {
-    console.error('复制失败：', error)
     message.error('复制失败')
   }
 }
@@ -68,61 +75,110 @@ const handleClose = () => {
 <style scoped>
 .deploy-success {
   text-align: center;
-  padding: 24px;
+  padding: 12px 0;
 }
 
 .success-icon {
-  margin-bottom: 16px;
-}
-
-.deploy-success h3 {
-  margin: 0 0 16px;
-  font-size: 20px;
-  font-weight: 600;
-  color: #2d3436;
-}
-
-.deploy-success p {
-  margin: 0 0 24px;
-  color: #636e72;
-}
-
-.deploy-url {
+  display: flex;
+  justify-content: center;
   margin-bottom: 24px;
 }
 
-.deploy-url :deep(.ant-input) {
-  border-radius: 12px;
-  border: 2px solid rgba(230, 126, 34, 0.2);
+.icon-wrapper {
+  width: 80px;
+  height: 80px;
+  background: #f6ffed;
+  border: 1px solid #b7eb8f;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 32px;
+  color: #52c41a;
+  box-shadow: 0 8px 24px rgba(82, 196, 26, 0.1);
+}
+
+.success-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: var(--text-main);
+  margin-bottom: 12px;
+}
+
+.success-desc {
+  font-size: 15px;
+  color: var(--text-secondary);
+  line-height: 1.6;
+  margin-bottom: 32px;
+}
+
+.url-card {
+  background: var(--secondary-bg);
+  padding: 20px;
+  border-radius: 16px;
+  text-align: left;
+  margin-bottom: 32px;
+}
+
+.url-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+}
+
+.url-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.url-text {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 14px;
+  color: var(--primary-color);
+  word-break: break-all;
+  font-weight: 600;
+}
+
+.copy-btn {
+  color: var(--text-secondary);
+  transition: var(--transition-base);
+}
+
+.copy-btn:hover {
+  color: var(--primary-color);
+  background: white;
 }
 
 .deploy-actions {
   display: flex;
+  flex-direction: column;
   gap: 12px;
-  justify-content: center;
 }
 
-.deploy-actions :deep(.ant-btn-primary) {
-  background: #e67e22;
-  border-color: #e67e22;
+.open-btn {
+  height: 54px;
+  font-weight: 700;
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(0, 102, 255, 0.2) !important;
 }
 
-.deploy-actions :deep(.ant-btn-primary:hover) {
-  background: #d35400;
-  border-color: #d35400;
+.close-btn {
+  height: 48px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 :deep(.ant-modal-content) {
-  border-radius: 16px;
+  border-radius: 32px !important;
+  padding: 40px !important;
 }
 
 :deep(.ant-modal-header) {
-  border-radius: 16px 16px 0 0;
-  background: linear-gradient(135deg, #fef3e2 0%, #f9d5b8 100%);
-}
-
-:deep(.ant-modal-title) {
-  color: #2d3436;
-  font-weight: 600;
+  display: none;
 }
 </style>

@@ -5,8 +5,8 @@
       <a-col flex="200px">
         <RouterLink to="/">
           <div class="header-left">
-            <img class="logo" src="@/assets/logo.png" alt="Logo" />
-            <h1 class="site-title">鱼皮应用生成</h1>
+            <img class="logo" src="@/assets/touxiang.jpg" alt="Logo" />
+            <h1 class="site-title">AI应用生成</h1>
           </div>
         </RouterLink>
       </a-col>
@@ -82,11 +82,7 @@ const originItems = [
     label: '应用管理',
     title: '应用管理',
   },
-  {
-    key: 'others',
-    label: h('a', { href: 'https://www.codefather.cn', target: '_blank' }, '编程导航'),
-    title: '编程导航',
-  },
+
 ]
 
 // 过滤菜单项
@@ -133,38 +129,88 @@ const doLogout = async () => {
 
 <style scoped>
 .header {
-  background: linear-gradient(135deg, #fff 0%, #fef9f3 100%);
-  padding: 0 24px;
-  border-bottom: 2px solid rgba(230, 126, 34, 0.15);
+  background: rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  padding: 0 40px;
+  height: 72px;
+  line-height: 72px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  border-bottom: 1px solid var(--border-color);
+  transition: var(--transition-base);
 }
 
 .header-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  height: 72px;
 }
 
 .logo {
-  height: 48px;
-  width: 48px;
+  height: 32px;
+  width: 32px;
+  transition: transform 0.3s ease;
+}
+
+.header-left:hover .logo {
+  transform: rotate(15deg);
 }
 
 .site-title {
   margin: 0;
-  font-size: 18px;
-  color: #e67e22;
-  font-weight: 600;
+  font-size: 20px;
+  color: var(--text-main);
+  font-weight: 700;
+  letter-spacing: -0.5px;
 }
 
 .ant-menu-horizontal {
   border-bottom: none !important;
+  background: transparent;
+  line-height: 72px;
 }
 
-.ant-menu-horizontal > .ant-menu-item-selected {
-  color: #e67e22 !important;
+:deep(.ant-menu-item) {
+  font-weight: 500;
+  color: var(--text-secondary) !important;
+  padding: 0 20px !important;
+  transition: var(--transition-base) !important;
 }
 
-.ant-menu-horizontal > .ant-menu-item:hover {
-  color: #d35400 !important;
+:deep(.ant-menu-item-selected) {
+  color: var(--primary-color) !important;
+  background: transparent !important;
+}
+
+:deep(.ant-menu-item-selected::after) {
+  border-bottom-width: 3px !important;
+  border-bottom-color: var(--primary-color) !important;
+  border-radius: 2px;
+}
+
+:deep(.ant-menu-item:hover) {
+  color: var(--primary-color) !important;
+}
+
+.user-login-status {
+  display: flex;
+  align-items: center;
+  height: 72px;
+}
+
+.user-name {
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.login-btn {
+  border-radius: 20px;
+  padding: 0 24px;
+  height: 38px;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(0, 102, 255, 0.2) !important;
 }
 </style>

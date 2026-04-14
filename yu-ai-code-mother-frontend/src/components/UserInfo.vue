@@ -24,11 +24,12 @@ withDefaults(defineProps<Props>(), {
 .user-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
 }
 
 .user-name {
   font-size: 14px;
-  color: #2d3436;
+  font-weight: 600;
+  color: var(--text-main);
 }
 </style>
