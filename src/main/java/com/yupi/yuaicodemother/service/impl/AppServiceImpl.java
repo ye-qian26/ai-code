@@ -205,16 +205,17 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
      */
     @Override
     public void generateAppScreenshotAsync(Long appId, String appUrl) {
-        // 使用虚拟线程并执行
         Thread.startVirtualThread(() -> {
-            // 调用截图服务生成截图并上传
-            String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
-            // 更新数据库的封面
-            App updateApp = new App();
-            updateApp.setId(appId);
-            updateApp.setCover(screenshotUrl);
-            boolean updated = this.updateById(updateApp);
-            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+            try {
+                String screenshotUrl = screenshotService.generateAndUploadScreenshot(appUrl);
+                App updateApp = new App();
+                updateApp.setId(appId);
+                updateApp.setCover(screenshotUrl);
+                boolean updated = this.updateById(updateApp);
+                ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+            } catch (Exception e) {
+                log.warn("Failed to generate or upload screenshot for appId={}, url={}", appId, appUrl, e);
+            }
         });
     }
 

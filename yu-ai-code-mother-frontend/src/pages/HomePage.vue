@@ -77,11 +77,7 @@
     </div>
 
     <!-- 作品详情弹窗 -->
-    <AppDetailModal
-      v-model:visible="showWorkModal"
-      :app="selectedApp"
-      @view-chat="handleViewChat"
-    />
+    <AppDetailModal v-model:open="showWorkModal" :app="selectedApp" />
   </div>
 </template>
 
@@ -104,7 +100,7 @@ const creating = ref(false)
 
 // 详情弹窗控制
 const showWorkModal = ref(false)
-const selectedApp = ref<API.AppVO | null>(null)
+const selectedApp = ref<API.AppVO>()
 
 // 我的应用数据
 const myApps = ref<API.AppVO[]>([])
@@ -208,7 +204,10 @@ const loadFeaturedApps = async () => {
 }
 
 // 处理查看对话
-const handleViewChat = (appId: string | number) => {
+const handleViewChat = (appId?: string | number) => {
+  if (appId === undefined || appId === null) {
+    return
+  }
   router.push(`/app/chat/${appId}`)
 }
 

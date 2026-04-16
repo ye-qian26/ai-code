@@ -72,11 +72,11 @@ public class ToolExecutionRequestBuilder {
 
     public ToolExecutionRequest build() {
         // TODO store it till complete response?
-        String arguments = this.arguments.toString();
+        String arguments = ToolExecutionRequestSanitizer.normalizeArguments(this.arguments.toString());
         ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
                 .id(id.get())
                 .name(name.get())
-                .arguments(arguments.isEmpty() ? "{}" : arguments)
+                .arguments(arguments)
                 .build();
         allToolExecutionRequests.add(toolExecutionRequest); // TODO method name, rethink
         reset();
@@ -90,7 +90,11 @@ public class ToolExecutionRequestBuilder {
     }
 
     public boolean hasToolExecutionRequests() {
-        return !allToolExecutionRequests.isEmpty() || name.get() != null;
+        return !allToolExecutionRequests.isEmpty() || hasPendingToolExecutionRequest();
+    }
+
+    public boolean hasPendingToolExecutionRequest() {
+        return isNotNullOrBlank(id.get()) || isNotNullOrBlank(name.get()) || arguments.length() > 0;
     }
 
     public List<ToolExecutionRequest> allToolExecutionRequests() {

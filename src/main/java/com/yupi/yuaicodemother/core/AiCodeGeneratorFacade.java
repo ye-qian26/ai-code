@@ -6,6 +6,7 @@ import com.yupi.yuaicodemother.ai.AiCodeGeneratorServiceFactory;
 import com.yupi.yuaicodemother.ai.model.HtmlCodeResult;
 import com.yupi.yuaicodemother.ai.model.MultiFileCodeResult;
 import com.yupi.yuaicodemother.ai.model.message.AiResponseMessage;
+import com.yupi.yuaicodemother.ai.model.message.StreamErrorMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolExecutedMessage;
 import com.yupi.yuaicodemother.ai.model.message.ToolRequestMessage;
 import com.yupi.yuaicodemother.core.builder.VueProjectBuilder;
@@ -81,10 +82,15 @@ public class AiCodeGeneratorFacade {
                     CodeGenTypeEnum.MULTI_FILE,
                     appId
             );
-            case VUE_PROJECT -> processTokenStream(
-                    aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage),
-                    appId
-            );
+            case VUE_PROJECT -> Flux.defer(() -> {
+                try {
+                    TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
+                    return processTokenStream(tokenStream, appId);
+                } catch (Exception e) {
+                    log.error("Failed to start Vue project generation for appId={}", appId, e);
+                    return Flux.just(buildStreamErrorChunk("stream_start", buildUserFacingMessage(e), true));
+                }
+            });
             default -> throw new BusinessException(
                     ErrorCode.SYSTEM_ERROR,
                     "Unsupported code generation type: " + codeGenTypeEnum.getValue()
@@ -98,7 +104,8 @@ public class AiCodeGeneratorFacade {
                 vueProjectScaffolder.prepareProject(appId);
             } catch (Exception e) {
                 log.error("Failed to prepare Vue project scaffold for appId={}", appId, e);
-                sink.error(e);
+                sink.next(buildStreamErrorChunk("scaffold", "项目初始化失败，请稍后重试", true));
+                sink.complete();
                 return;
             }
 
@@ -117,14 +124,16 @@ public class AiCodeGeneratorFacade {
                     .onCompleteResponse((ChatResponse response) -> {
                         String projectPath = vueProjectPathResolver.resolveProjectRoot(appId).toString();
                         if (!vueProjectBuilder.buildProject(projectPath)) {
-                            sink.error(new IllegalStateException("Vue project build failed: " + projectPath));
+                            sink.next(buildStreamErrorChunk("build", "代码已生成，但项目构建失败，请根据提示继续修复", false));
+                            sink.complete();
                             return;
                         }
                         sink.complete();
                     })
                     .onError(error -> {
                         log.error("Vue project generation failed for appId={}", appId, error);
-                        sink.error(error);
+                        sink.next(buildStreamErrorChunk("streaming", buildUserFacingMessage(error), isRetryable(error)));
+                        sink.complete();
                     })
                     .start();
         });
@@ -143,5 +152,43 @@ public class AiCodeGeneratorFacade {
                         log.error("Failed to save generated code", e);
                     }
                 });
+    }
+
+    private String buildStreamErrorChunk(String stage, String message, boolean retryable) {
+        StreamErrorMessage streamErrorMessage = new StreamErrorMessage(
+                stage,
+                ErrorCode.SYSTEM_ERROR.getCode(),
+                message,
+                retryable,
+                true,
+                true
+        );
+        return JSONUtil.toJsonStr(streamErrorMessage);
+    }
+
+    private String buildUserFacingMessage(Throwable error) {
+        if (isRetryable(error)) {
+            return "会话服务暂时不可用，本次生成已中断，请稍后重试";
+        }
+        String errorMessage = error.getMessage();
+        if (errorMessage == null || errorMessage.isBlank()) {
+            return "生成过程中出现系统异常，请稍后重试";
+        }
+        return errorMessage;
+    }
+
+    private boolean isRetryable(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            String className = current.getClass().getName();
+            if (className.contains("JedisConnectionException")
+                    || className.contains("SocketException")
+                    || className.contains("ConnectException")
+                    || className.contains("TimeoutException")) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }
