@@ -36,7 +36,6 @@ public class AiCodeGeneratorFacade {
 
     private static final int MAX_EDIT_RETRY_ATTEMPTS = 1;
     private static final String PROJECT_EDIT_RULES_MARKER = "[PROJECT_EDIT_RULES]";
-    private static final String SELECTED_ELEMENT_CONTEXT_MARKER = "[SELECTED_ELEMENT_CONTEXT]";
     private static final Set<String> FILE_MUTATION_TOOL_NAMES = Set.of("modifyFile", "writeFile", "deleteFile");
 
     @Resource
@@ -221,7 +220,7 @@ public class AiCodeGeneratorFacade {
         if (userMessage == null || userMessage.isBlank()) {
             return false;
         }
-        return userMessage.contains(PROJECT_EDIT_RULES_MARKER) || userMessage.contains(SELECTED_ELEMENT_CONTEXT_MARKER);
+        return userMessage.contains(PROJECT_EDIT_RULES_MARKER);
     }
 
     private boolean isSuccessfulFileMutation(ToolExecution toolExecution) {

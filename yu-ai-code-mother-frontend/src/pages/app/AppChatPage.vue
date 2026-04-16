@@ -206,6 +206,11 @@ interface StreamErrorPayload {
   preservePreview?: boolean
 }
 
+interface GenerationPromptPayload {
+  prompt: string
+  expectsProjectChange: boolean
+}
+
 const route = useRoute()
 const router = useRouter()
 const loginUserStore = useLoginUserStore()
@@ -311,10 +316,38 @@ const buildSelectedElementContext = (elementInfo: ElementInfo) => {
   return lines.join('\n')
 }
 
-const buildGenerationPrompt = (rawPrompt: string) => {
-  const sections = [rawPrompt]
+const GENERAL_CHAT_PATTERNS = [
+  /^(你好|您好|hello|hi|hey|嗨|在吗|早上好|下午好|晚上好)[\s!,.，。？！]*$/i,
+  /你是谁|你能做什么|介绍一下|解释一下|总结一下|聊聊|这个项目.*(是什么|干嘛|做什么)|为什么|怎么(做|实现|回事|用)/i,
+]
 
-  if (appInfo.value?.codeGenType === CodeGenTypeEnum.VUE_PROJECT) {
+const PROJECT_EDIT_PATTERNS = [
+  /修改|改成|改为|改下|调整|优化|新增|增加|添加|删除|去掉|移除|替换|重写|实现|修复|做成|做个|加个|换成|补充|完善|美化|重构|布局/i,
+  /\b(change|modify|update|edit|add|remove|delete|fix|implement|create|replace|rewrite|redesign|refactor|style)\b/i,
+]
+
+const shouldTreatAsProjectEdit = (rawPrompt: string) => {
+  const prompt = rawPrompt.trim()
+  if (!prompt) {
+    return false
+  }
+  if (PROJECT_EDIT_PATTERNS.some((pattern) => pattern.test(prompt))) {
+    return true
+  }
+  if (GENERAL_CHAT_PATTERNS.some((pattern) => pattern.test(prompt))) {
+    return false
+  }
+  return true
+}
+
+const buildGenerationPrompt = (rawPrompt: string): GenerationPromptPayload => {
+  const sections = [rawPrompt]
+  const expectsProjectChange =
+    appInfo.value?.codeGenType === CodeGenTypeEnum.VUE_PROJECT
+      ? shouldTreatAsProjectEdit(rawPrompt)
+      : true
+
+  if (appInfo.value?.codeGenType === CodeGenTypeEnum.VUE_PROJECT && expectsProjectChange) {
     sections.push(buildVueProjectEditRules())
   }
 
@@ -322,7 +355,10 @@ const buildGenerationPrompt = (rawPrompt: string) => {
     sections.push(buildSelectedElementContext(selectedElementInfo.value))
   }
 
-  return sections.join('\n\n')
+  return {
+    prompt: sections.join('\n\n'),
+    expectsProjectChange,
+  }
 }
 
 const buildPreviewUrl = () => {
@@ -492,7 +528,7 @@ const sendInitialMessage = async (prompt: string) => {
   })
   await nextTick()
   scrollToBottom()
-  await generateCode(prompt, aiMessageIndex)
+  await generateCode(prompt, aiMessageIndex, true)
 }
 
 const sendMessage = async () => {
@@ -501,7 +537,7 @@ const sendMessage = async () => {
   }
 
   const rawPrompt = userInput.value.trim()
-  const finalPrompt = buildGenerationPrompt(rawPrompt)
+  const { prompt: finalPrompt, expectsProjectChange } = buildGenerationPrompt(rawPrompt)
   const displayContent = rawPrompt
 
   userInput.value = ''
@@ -520,10 +556,10 @@ const sendMessage = async () => {
 
   await nextTick()
   scrollToBottom()
-  await generateCode(finalPrompt, aiMessageIndex)
+  await generateCode(finalPrompt, aiMessageIndex, expectsProjectChange)
 }
 
-const generateCode = async (prompt: string, aiMessageIndex: number) => {
+const generateCode = async (prompt: string, aiMessageIndex: number, expectsProjectChange = true) => {
   if (!appId.value) {
     return
   }
@@ -569,7 +605,7 @@ const generateCode = async (prompt: string, aiMessageIndex: number) => {
     }
 
     await finishStream()
-    if (payload.preservePreview !== false) {
+    if (expectsProjectChange && payload.preservePreview !== false) {
       await updatePreview({
         preserveCurrent: true,
         fallbackUrl: previousPreviewUrl,
@@ -620,11 +656,13 @@ const generateCode = async (prompt: string, aiMessageIndex: number) => {
 
     eventSource.addEventListener('done', async () => {
       await finishStream()
-      await updatePreview({
-        preserveCurrent: true,
-        fallbackUrl: previousPreviewUrl,
-        fallbackReady: previousPreviewReady,
-      })
+      if (expectsProjectChange) {
+        await updatePreview({
+          preserveCurrent: true,
+          fallbackUrl: previousPreviewUrl,
+          fallbackReady: previousPreviewReady,
+        })
+      }
     })
 
     eventSource.addEventListener('business-error', async (event: MessageEvent<string>) => {
