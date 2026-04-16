@@ -278,6 +278,53 @@ const appendSystemNote = (content: string, note: string) => {
   return trimmed ? `${trimmed}\n\n---\n${note}` : note
 }
 
+const buildVueProjectEditRules = () => {
+  return [
+    '[PROJECT_EDIT_RULES]',
+    '- This is a follow-up modification request for an existing generated Vue project.',
+    '- Do not answer with explanation only.',
+    '- Inspect the current files when needed, then apply real code changes with modifyFile or writeFile.',
+    '- Prefer targeted edits to the page or component that renders the requested area.',
+    '- Keep unrelated files unchanged.',
+    '- End with a short completion message after the edits are done.',
+  ].join('\n')
+}
+
+const buildSelectedElementContext = (elementInfo: ElementInfo) => {
+  const lines = [
+    '[SELECTED_ELEMENT_CONTEXT]',
+    `- Tag: ${elementInfo.tagName.toLowerCase()}`,
+    `- Selector: ${elementInfo.selector}`,
+    `- Route hint: ${elementInfo.pagePath || '/'}`,
+  ]
+
+  if (elementInfo.id) {
+    lines.push(`- ID: ${elementInfo.id}`)
+  }
+  if (elementInfo.className) {
+    lines.push(`- Class names: ${elementInfo.className}`)
+  }
+  if (elementInfo.textContent) {
+    lines.push(`- Text snippet: ${elementInfo.textContent.slice(0, 160)}`)
+  }
+
+  return lines.join('\n')
+}
+
+const buildGenerationPrompt = (rawPrompt: string) => {
+  const sections = [rawPrompt]
+
+  if (appInfo.value?.codeGenType === CodeGenTypeEnum.VUE_PROJECT) {
+    sections.push(buildVueProjectEditRules())
+  }
+
+  if (selectedElementInfo.value) {
+    sections.push(buildSelectedElementContext(selectedElementInfo.value))
+  }
+
+  return sections.join('\n\n')
+}
+
 const buildPreviewUrl = () => {
   const type = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
   const baseUrl = getStaticPreviewUrl(type, String(appId.value))
@@ -453,23 +500,9 @@ const sendMessage = async () => {
     return
   }
 
-  let finalPrompt = userInput.value.trim()
-  const displayContent = finalPrompt
-
-  if (selectedElementInfo.value) {
-    finalPrompt += '\n\n[当前选中元素上下文]'
-    finalPrompt += `\n- 标签: ${selectedElementInfo.value.tagName.toLowerCase()}`
-    finalPrompt += `\n- 选择器: ${selectedElementInfo.value.selector}`
-    if (selectedElementInfo.value.id) {
-      finalPrompt += `\n- ID: ${selectedElementInfo.value.id}`
-    }
-    if (selectedElementInfo.value.pagePath) {
-      finalPrompt += `\n- 页面路径: ${selectedElementInfo.value.pagePath}`
-    }
-    if (selectedElementInfo.value.textContent) {
-      finalPrompt += `\n- 文本片段: ${selectedElementInfo.value.textContent.slice(0, 100)}`
-    }
-  }
+  const rawPrompt = userInput.value.trim()
+  const finalPrompt = buildGenerationPrompt(rawPrompt)
+  const displayContent = rawPrompt
 
   userInput.value = ''
   messages.value.push({

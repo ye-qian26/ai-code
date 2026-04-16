@@ -24,12 +24,20 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.FluxSink;
 
 import java.io.File;
+import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
 @Slf4j
 public class AiCodeGeneratorFacade {
+
+    private static final int MAX_EDIT_RETRY_ATTEMPTS = 1;
+    private static final String PROJECT_EDIT_RULES_MARKER = "[PROJECT_EDIT_RULES]";
+    private static final String SELECTED_ELEMENT_CONTEXT_MARKER = "[SELECTED_ELEMENT_CONTEXT]";
+    private static final Set<String> FILE_MUTATION_TOOL_NAMES = Set.of("modifyFile", "writeFile", "deleteFile");
 
     @Resource
     private AiCodeGeneratorServiceFactory aiCodeGeneratorServiceFactory;
@@ -48,7 +56,7 @@ public class AiCodeGeneratorFacade {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Code generation type is required");
         }
         AiCodeGeneratorService aiCodeGeneratorService =
-                aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId, codeGenTypeEnum);
+                aiCodeGeneratorServiceFactory.getAiCodeGeneratorServiceForRequest(appId, codeGenTypeEnum);
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 HtmlCodeResult result = aiCodeGeneratorService.generateHtmlCode(userMessage);
@@ -70,7 +78,7 @@ public class AiCodeGeneratorFacade {
             throw new BusinessException(ErrorCode.PARAMS_ERROR, "Code generation type is required");
         }
         AiCodeGeneratorService aiCodeGeneratorService =
-                aiCodeGeneratorServiceFactory.getAiCodeGeneratorService(appId, codeGenTypeEnum);
+                aiCodeGeneratorServiceFactory.getAiCodeGeneratorServiceForRequest(appId, codeGenTypeEnum);
         return switch (codeGenTypeEnum) {
             case HTML -> processCodeStream(
                     aiCodeGeneratorService.generateHtmlCodeStream(userMessage),
@@ -84,8 +92,7 @@ public class AiCodeGeneratorFacade {
             );
             case VUE_PROJECT -> Flux.defer(() -> {
                 try {
-                    TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                    return processTokenStream(tokenStream, appId);
+                    return processVueProjectStream(aiCodeGeneratorService, userMessage, appId);
                 } catch (Exception e) {
                     log.error("Failed to start Vue project generation for appId={}", appId, e);
                     return Flux.just(buildStreamErrorChunk("stream_start", buildUserFacingMessage(e), true));
@@ -98,45 +105,89 @@ public class AiCodeGeneratorFacade {
         };
     }
 
-    private Flux<String> processTokenStream(TokenStream tokenStream, Long appId) {
+    private Flux<String> processVueProjectStream(AiCodeGeneratorService aiCodeGeneratorService,
+                                                 String userMessage,
+                                                 Long appId) {
         return Flux.create(sink -> {
             try {
                 vueProjectScaffolder.prepareProject(appId);
             } catch (Exception e) {
                 log.error("Failed to prepare Vue project scaffold for appId={}", appId, e);
-                sink.next(buildStreamErrorChunk("scaffold", "项目初始化失败，请稍后重试", true));
+                sink.next(buildStreamErrorChunk("scaffold", "Project scaffold initialization failed, please retry later.", true));
                 sink.complete();
                 return;
             }
 
-            tokenStream.onPartialResponse(partialResponse -> {
-                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
-                        sink.next(JSONUtil.toJsonStr(aiResponseMessage));
-                    })
-                    .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
-                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
-                        sink.next(JSONUtil.toJsonStr(toolRequestMessage));
-                    })
-                    .onToolExecuted((ToolExecution toolExecution) -> {
-                        ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
-                        sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
-                    })
-                    .onCompleteResponse((ChatResponse response) -> {
-                        String projectPath = vueProjectPathResolver.resolveProjectRoot(appId).toString();
-                        if (!vueProjectBuilder.buildProject(projectPath)) {
-                            sink.next(buildStreamErrorChunk("build", "代码已生成，但项目构建失败，请根据提示继续修复", false));
-                            sink.complete();
+            startVueProjectAttempt(sink, aiCodeGeneratorService, userMessage, appId, 0);
+        });
+    }
+
+    private void startVueProjectAttempt(FluxSink<String> sink,
+                                        AiCodeGeneratorService aiCodeGeneratorService,
+                                        String userMessage,
+                                        Long appId,
+                                        int attempt) {
+        if (sink.isCancelled()) {
+            return;
+        }
+
+        AtomicBoolean fileMutationExecuted = new AtomicBoolean(false);
+        TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
+        tokenStream.onPartialResponse(partialResponse -> {
+                    AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+                    sink.next(JSONUtil.toJsonStr(aiResponseMessage));
+                })
+                .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
+                    ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
+                    sink.next(JSONUtil.toJsonStr(toolRequestMessage));
+                })
+                .onToolExecuted((ToolExecution toolExecution) -> {
+                    ToolExecutedMessage toolExecutedMessage = new ToolExecutedMessage(toolExecution);
+                    sink.next(JSONUtil.toJsonStr(toolExecutedMessage));
+                    if (isSuccessfulFileMutation(toolExecution)) {
+                        fileMutationExecuted.set(true);
+                    }
+                })
+                .onCompleteResponse((ChatResponse response) -> {
+                    if (requiresFileMutation(userMessage) && !fileMutationExecuted.get()) {
+                        if (attempt < MAX_EDIT_RETRY_ATTEMPTS) {
+                            log.warn("Vue project edit completed without file changes, retrying. appId={}, attempt={}", appId, attempt + 1);
+                            startVueProjectAttempt(
+                                    sink,
+                                    aiCodeGeneratorService,
+                                    buildMissingToolRetryPrompt(userMessage),
+                                    appId,
+                                    attempt + 1
+                            );
                             return;
                         }
+                        sink.next(buildStreamErrorChunk(
+                                "missing_file_change",
+                                "AI replied but did not modify any project files, so the preview was not updated. Please retry with a more specific edit request.",
+                                true
+                        ));
                         sink.complete();
-                    })
-                    .onError(error -> {
-                        log.error("Vue project generation failed for appId={}", appId, error);
-                        sink.next(buildStreamErrorChunk("streaming", buildUserFacingMessage(error), isRetryable(error)));
+                        return;
+                    }
+
+                    String projectPath = vueProjectPathResolver.resolveProjectRoot(appId).toString();
+                    if (!vueProjectBuilder.buildProject(projectPath)) {
+                        sink.next(buildStreamErrorChunk(
+                                "build",
+                                "Code changes were generated, but the Vue project build failed. Please continue fixing the project based on the errors.",
+                                false
+                        ));
                         sink.complete();
-                    })
-                    .start();
-        });
+                        return;
+                    }
+                    sink.complete();
+                })
+                .onError(error -> {
+                    log.error("Vue project generation failed for appId={}", appId, error);
+                    sink.next(buildStreamErrorChunk("streaming", buildUserFacingMessage(error), isRetryable(error)));
+                    sink.complete();
+                })
+                .start();
     }
 
     private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenType, Long appId) {
@@ -166,13 +217,42 @@ public class AiCodeGeneratorFacade {
         return JSONUtil.toJsonStr(streamErrorMessage);
     }
 
+    private boolean requiresFileMutation(String userMessage) {
+        if (userMessage == null || userMessage.isBlank()) {
+            return false;
+        }
+        return userMessage.contains(PROJECT_EDIT_RULES_MARKER) || userMessage.contains(SELECTED_ELEMENT_CONTEXT_MARKER);
+    }
+
+    private boolean isSuccessfulFileMutation(ToolExecution toolExecution) {
+        if (toolExecution == null || toolExecution.request() == null) {
+            return false;
+        }
+        String toolName = toolExecution.request().name();
+        if (!FILE_MUTATION_TOOL_NAMES.contains(toolName)) {
+            return false;
+        }
+        String result = toolExecution.result();
+        return result != null
+                && (result.startsWith("MODIFY_FILE_SUCCESS")
+                || result.startsWith("WRITE_FILE_SUCCESS")
+                || result.startsWith("DELETE_FILE_SUCCESS"));
+    }
+
+    private String buildMissingToolRetryPrompt(String userMessage) {
+        return userMessage + "\n\n[MANDATORY_TOOL_RETRY]\n"
+                + "Your previous response did not execute any successful file-changing tool.\n"
+                + "You must inspect the existing project files if needed and then execute modifyFile, writeFile, or deleteFile to apply a real code change before finishing.\n"
+                + "A plain text answer is not acceptable for this request.";
+    }
+
     private String buildUserFacingMessage(Throwable error) {
         if (isRetryable(error)) {
-            return "会话服务暂时不可用，本次生成已中断，请稍后重试";
+            return "The AI session service is temporarily unavailable. This generation was interrupted. Please retry later.";
         }
         String errorMessage = error.getMessage();
         if (errorMessage == null || errorMessage.isBlank()) {
-            return "生成过程中出现系统异常，请稍后重试";
+            return "A system error occurred during generation. Please retry later.";
         }
         return errorMessage;
     }

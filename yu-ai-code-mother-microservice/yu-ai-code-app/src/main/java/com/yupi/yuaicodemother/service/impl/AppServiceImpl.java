@@ -11,6 +11,7 @@ import com.yupi.yuaicodemother.ai.AiCodeGenTypeRoutingService;
 import com.yupi.yuaicodemother.ai.AiCodeGenTypeRoutingServiceFactory;
 import com.yupi.yuaicodemother.constant.AppConstant;
 import com.yupi.yuaicodemother.core.AiCodeGeneratorFacade;
+import com.yupi.yuaicodemother.core.builder.VueProjectBuildService;
 import com.yupi.yuaicodemother.core.builder.VueProjectBuilder;
 import com.yupi.yuaicodemother.core.handler.StreamHandlerExecutor;
 import com.yupi.yuaicodemother.exception.BusinessException;
@@ -71,7 +72,7 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
     private StreamHandlerExecutor streamHandlerExecutor;
 
     @Resource
-    private VueProjectBuilder vueProjectBuilder;
+    private VueProjectBuildService vueProjectBuildService;
 
     @DubboReference
     private InnerScreenshotService screenshotService;
@@ -158,7 +159,8 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
         if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
             // Vue 项目需要构建
-            boolean buildSuccess = vueProjectBuilder.buildProject(sourceDirPath);
+            VueProjectBuilder.BuildResult buildResult = vueProjectBuildService.ensureProjectBuildReady(appId, sourceDirPath);
+            boolean buildSuccess = buildResult.success();
             ThrowUtils.throwIf(!buildSuccess, ErrorCode.SYSTEM_ERROR, "Vue 项目构建失败，请重试");
             // 检查 dist 目录是否存在
             File distDir = new File(sourceDirPath, "dist");

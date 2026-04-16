@@ -1,11 +1,17 @@
 package com.yupi.yuaicodemother.core.builder;
 
-import cn.hutool.core.util.RuntimeUtil;
+import cn.hutool.core.io.FileUtil;
+import cn.hutool.core.util.StrUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Pattern;
 
 /**
  * 构建 Vue 项目
@@ -14,85 +20,117 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class VueProjectBuilder {
 
-    /**
-     * 异步构建 Vue 项目
-     *
-     * @param projectPath
-     */
+    private static final List<String> VITE_CONFIG_FILES = List.of(
+            "vite.config.js",
+            "vite.config.ts",
+            "vite.config.mjs"
+    );
+    private static final Pattern NODE_URL_IMPORT_PATTERN =
+            Pattern.compile("import\\s*\\{[^}]*}\\s*from\\s*['\"]node:url['\"]");
+    private static final Pattern FILE_URL_TO_PATH_IMPORT_PATTERN =
+            Pattern.compile("import\\s*\\{[^}]*\\bfileURLToPath\\b[^}]*}\\s*from\\s*['\"]node:url['\"]");
+    private static final Pattern URL_IMPORT_PATTERN =
+            Pattern.compile("import\\s*\\{[^}]*\\bURL\\b[^}]*}\\s*from\\s*['\"]node:url['\"]");
+
+    public record BuildResult(boolean success, String output) {
+    }
+
     public void buildProjectAsync(String projectPath) {
         Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis())
                 .start(() -> {
                     try {
                         buildProject(projectPath);
                     } catch (Exception e) {
-                        log.error("异步构建 Vue 项目时发生异常: {}", e.getMessage(), e);
+                        log.error("异步构建 Vue 项目失败: {}", e.getMessage(), e);
                     }
                 });
     }
 
-    /**
-     * 构建 Vue 项目
-     *
-     * @param projectPath 项目根目录路径
-     * @return 是否构建成功
-     */
     public boolean buildProject(String projectPath) {
+        return buildProjectWithResult(projectPath).success();
+    }
+
+    public BuildResult buildProjectWithResult(String projectPath) {
         File projectDir = new File(projectPath);
         if (!projectDir.exists() || !projectDir.isDirectory()) {
-            log.error("项目目录不存在：{}", projectPath);
-            return false;
+            return new BuildResult(false, "项目目录不存在: " + projectPath);
         }
-        // 检查是否有 package.json 文件
+
         File packageJsonFile = new File(projectDir, "package.json");
         if (!packageJsonFile.exists()) {
-            log.error("项目目录中没有 package.json 文件：{}", projectPath);
-            return false;
+            return new BuildResult(false, "项目目录中缺少 package.json: " + projectPath);
         }
-        log.info("开始构建 Vue 项目：{}", projectPath);
-        // 执行 npm install
-        if (!executeNpmInstall(projectDir)) {
-            log.error("npm install 执行失败：{}", projectPath);
-            return false;
+
+        normalizeProjectFiles(projectDir);
+
+        log.info("开始构建 Vue 项目: {}", projectPath);
+        CommandResult installResult = executeCommand(projectDir, buildCommand("npm") + " install", 300);
+        if (!installResult.success()) {
+            return new BuildResult(false, buildFailureMessage("npm install", installResult.output()));
         }
-        // 执行 npm run build
-        if (!executeNpmBuild(projectDir)) {
-            log.error("npm run build 执行失败：{}", projectPath);
-            return false;
+
+        CommandResult buildResult = executeCommand(projectDir, buildCommand("npm") + " run build", 180);
+        if (!buildResult.success()) {
+            return new BuildResult(false, buildFailureMessage("npm run build", buildResult.output()));
         }
-        // 验证 dist 目录是否生成
+
         File distDir = new File(projectDir, "dist");
         if (!distDir.exists() || !distDir.isDirectory()) {
-            log.error("构建完成但 dist 目录未生成：{}", projectPath);
+            return new BuildResult(false, "构建完成但未生成 dist 目录");
+        }
+
+        return new BuildResult(true, trimOutput(buildResult.output()));
+    }
+
+    private void normalizeProjectFiles(File projectDir) {
+        for (String fileName : VITE_CONFIG_FILES) {
+            File viteConfigFile = new File(projectDir, fileName);
+            if (!viteConfigFile.exists() || !viteConfigFile.isFile()) {
+                continue;
+            }
+            String content = FileUtil.readString(viteConfigFile, StandardCharsets.UTF_8);
+            if (needsNodeUrlImport(content)) {
+                String normalizedContent = normalizeNodeUrlImport(content);
+                FileUtil.writeString(normalizedContent, viteConfigFile, StandardCharsets.UTF_8);
+                log.info("已自动补充 node:url 导入: {}", viteConfigFile.getAbsolutePath());
+            }
+        }
+    }
+
+    private boolean needsNodeUrlImport(String content) {
+        if (StrUtil.isBlank(content)) {
             return false;
         }
-        log.info("Vue 项目构建成功，dist 目录：{}", projectPath);
-        return true;
+        boolean needsFileURLToPath = content.contains("fileURLToPath(")
+                && !FILE_URL_TO_PATH_IMPORT_PATTERN.matcher(content).find();
+        boolean needsUrl = content.contains("new URL(")
+                && !URL_IMPORT_PATTERN.matcher(content).find();
+        return needsFileURLToPath || needsUrl;
     }
 
-    /**
-     * 执行 npm install 命令
-     */
-    private boolean executeNpmInstall(File projectDir) {
-        log.info("执行 npm install...");
-        String command = String.format("%s install", buildCommand("npm"));
-        return executeCommand(projectDir, command, 300); // 5分钟超时
+    private String normalizeNodeUrlImport(String content) {
+        String importLine = "import { fileURLToPath, URL } from 'node:url'";
+        if (NODE_URL_IMPORT_PATTERN.matcher(content).find()) {
+            return NODE_URL_IMPORT_PATTERN.matcher(content).replaceFirst(importLine);
+        }
+        return importLine + "\n" + content;
     }
 
-    /**
-     * 执行 npm run build 命令
-     */
-    private boolean executeNpmBuild(File projectDir) {
-        log.info("执行 npm run build...");
-        String command = String.format("%s run build", buildCommand("npm"));
-        return executeCommand(projectDir, command, 180); // 3分钟超时
+    private String buildFailureMessage(String command, String output) {
+        return command + " failed.\n" + trimOutput(output);
     }
 
-    /**
-     * 根据操作系统构造命令
-     *
-     * @param baseCommand
-     * @return
-     */
+    private String trimOutput(String output) {
+        if (StrUtil.isBlank(output)) {
+            return "";
+        }
+        int maxLength = 6000;
+        if (output.length() <= maxLength) {
+            return output;
+        }
+        return "[truncated]\n" + output.substring(output.length() - maxLength);
+    }
+
     private String buildCommand(String baseCommand) {
         if (isWindows()) {
             return baseCommand + ".cmd";
@@ -100,50 +138,59 @@ public class VueProjectBuilder {
         return baseCommand;
     }
 
-    /**
-     * 操作系统检测
-     *
-     * @return
-     */
     private boolean isWindows() {
         return System.getProperty("os.name").toLowerCase().contains("windows");
     }
 
-    /**
-     * 执行命令
-     *
-     * @param workingDir     工作目录
-     * @param command        命令字符串
-     * @param timeoutSeconds 超时时间（秒）
-     * @return 是否执行成功
-     */
-    private boolean executeCommand(File workingDir, String command, int timeoutSeconds) {
+    private CommandResult executeCommand(File workingDir, String command, int timeoutSeconds) {
         try {
             log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), command);
-            Process process = RuntimeUtil.exec(
-                    null,
-                    workingDir,
-                    command.split("\\s+") // 命令分割为数组
-            );
-            // 等待进程完成，设置超时
+            ProcessBuilder processBuilder = new ProcessBuilder(command.split("\\s+"));
+            processBuilder.directory(workingDir);
+            processBuilder.redirectErrorStream(true);
+
+            Process process = processBuilder.start();
+            StringBuilder output = new StringBuilder();
+            Thread outputReader = Thread.startVirtualThread(() -> readProcessOutput(process, output));
+
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
-                log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
                 process.destroyForcibly();
-                return false;
+                outputReader.join(1000);
+                return new CommandResult(false, "Command timed out after " + timeoutSeconds + " seconds");
             }
+
+            outputReader.join(1000);
             int exitCode = process.exitValue();
+            String commandOutput = output.toString();
             if (exitCode == 0) {
                 log.info("命令执行成功: {}", command);
-                return true;
-            } else {
-                log.error("命令执行失败，退出码: {}", exitCode);
-                return false;
+                return new CommandResult(true, commandOutput);
             }
+
+            log.error("命令执行失败，退出码: {}", exitCode);
+            if (StrUtil.isNotBlank(commandOutput)) {
+                log.error("命令输出:\n{}", commandOutput);
+            }
+            return new CommandResult(false, commandOutput);
         } catch (Exception e) {
-            log.error("执行命令失败: {}, 错误信息: {}", command, e.getMessage());
-            return false;
+            log.error("执行命令失败: {}, 错误信息: {}", command, e.getMessage(), e);
+            return new CommandResult(false, e.getMessage());
         }
     }
 
+    private void readProcessOutput(Process process, StringBuilder output) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                output.append(line).append(System.lineSeparator());
+            }
+        } catch (Exception e) {
+            log.warn("读取命令输出失败: {}", e.getMessage());
+        }
+    }
+
+    private record CommandResult(boolean success, String output) {
+    }
 }

@@ -41,7 +41,7 @@ public class AiCodeGeneratorServiceFactory {
     @Resource
     private ToolManager toolManager;
 
-    private final Cache<String, AiCodeGeneratorService> serviceCache = Caffeine.newBuilder()
+    private final Cache<String, CachedAiCodeGeneratorService> serviceCache = Caffeine.newBuilder()
             .maximumSize(1000)
             .expireAfterWrite(Duration.ofMinutes(30))
             .expireAfterAccess(Duration.ofMinutes(10))
@@ -54,11 +54,21 @@ public class AiCodeGeneratorServiceFactory {
     }
 
     public AiCodeGeneratorService getAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
+        return getOrCreateCachedAiCodeGeneratorService(appId, codeGenType).service();
+    }
+
+    public AiCodeGeneratorService getAiCodeGeneratorServiceForRequest(long appId, CodeGenTypeEnum codeGenType) {
+        CachedAiCodeGeneratorService cachedService = getOrCreateCachedAiCodeGeneratorService(appId, codeGenType);
+        prepareChatMemoryForRequest(appId, codeGenType, cachedService.chatMemory());
+        return cachedService.service();
+    }
+
+    private CachedAiCodeGeneratorService getOrCreateCachedAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
         String cacheKey = buildCacheKey(appId, codeGenType);
         return serviceCache.get(cacheKey, key -> createAiCodeGeneratorService(appId, codeGenType));
     }
 
-    private AiCodeGeneratorService createAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
+    private CachedAiCodeGeneratorService createAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
         log.info("Create AI code generator service for appId={}, type={}", appId, codeGenType);
 
         MessageWindowChatMemory chatMemory = MessageWindowChatMemory.builder()
@@ -66,9 +76,9 @@ public class AiCodeGeneratorServiceFactory {
                 .chatMemoryStore(chatMemoryStore)
                 .maxMessages(CHAT_HISTORY_LIMIT)
                 .build();
-        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, CHAT_HISTORY_LIMIT);
+        chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, CHAT_HISTORY_LIMIT, codeGenType);
 
-        return switch (codeGenType) {
+        AiCodeGeneratorService aiCodeGeneratorService = switch (codeGenType) {
             case VUE_PROJECT -> {
                 StreamingChatModel reasoningStreamingChatModel =
                         SpringContextUtil.getBean("reasoningStreamingChatModelPrototype", StreamingChatModel.class);
@@ -101,6 +111,7 @@ public class AiCodeGeneratorServiceFactory {
                     "Unsupported code generation type: " + codeGenType.getValue()
             );
         };
+        return new CachedAiCodeGeneratorService(aiCodeGeneratorService, chatMemory);
     }
 
     @Bean
@@ -110,5 +121,23 @@ public class AiCodeGeneratorServiceFactory {
 
     private String buildCacheKey(long appId, CodeGenTypeEnum codeGenType) {
         return appId + "_" + codeGenType.getValue();
+    }
+
+    private void prepareChatMemoryForRequest(long appId,
+                                             CodeGenTypeEnum codeGenType,
+                                             MessageWindowChatMemory chatMemory) {
+        if (codeGenType != CodeGenTypeEnum.VUE_PROJECT) {
+            return;
+        }
+        // Vue project edits should use the current project files as source of truth.
+        // Reusing previous edit prompts and tool traces across requests causes drift quickly.
+        chatMemory.clear();
+        log.info("Reset Vue project chat memory before new request, appId={}", appId);
+    }
+
+    private record CachedAiCodeGeneratorService(
+            AiCodeGeneratorService service,
+            MessageWindowChatMemory chatMemory
+    ) {
     }
 }

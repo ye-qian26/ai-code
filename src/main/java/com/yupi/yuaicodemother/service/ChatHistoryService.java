@@ -2,6 +2,7 @@ package com.yupi.yuaicodemother.service;
 
 import com.mybatisflex.core.paginate.Page;
 import com.mybatisflex.core.query.QueryWrapper;
+import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.mybatisflex.core.service.IService;
 import com.yupi.yuaicodemother.model.dto.chathistory.ChatHistoryQueryRequest;
 import com.yupi.yuaicodemother.model.entity.ChatHistory;
@@ -58,6 +59,17 @@ public interface ChatHistoryService extends IService<ChatHistory> {
      * @return 加载成功的条数
      */
     int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount);
+
+    /**
+     * 按代码生成类型加载对话历史到内存
+     *
+     * @param appId
+     * @param chatMemory
+     * @param maxCount 最多加载多少条
+     * @param codeGenType 代码生成类型
+     * @return 加载成功的条数
+     */
+    int loadChatHistoryToMemory(Long appId, MessageWindowChatMemory chatMemory, int maxCount, CodeGenTypeEnum codeGenType);
 
     /**
      * 构造查询条件

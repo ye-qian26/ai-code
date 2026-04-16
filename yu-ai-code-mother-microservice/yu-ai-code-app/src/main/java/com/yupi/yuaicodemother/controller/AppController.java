@@ -79,7 +79,19 @@ public class AppController {
                                 .event("done")
                                 .data("")
                                 .build()
-                ));
+                ))
+                .onErrorResume(BusinessException.class, e -> Flux.just(buildBusinessErrorEvent(e.getMessage())))
+                .onErrorResume(Throwable.class, e -> Flux.just(buildBusinessErrorEvent("代码生成失败，请稍后重试")));
+    }
+
+    private ServerSentEvent<String> buildBusinessErrorEvent(String errorMessage) {
+        String jsonData = JSONUtil.toJsonStr(Map.of(
+                "message", StrUtil.blankToDefault(errorMessage, "代码生成失败，请稍后重试")
+        ));
+        return ServerSentEvent.<String>builder()
+                .event("business-error")
+                .data(jsonData)
+                .build();
     }
 
     /**

@@ -14,6 +14,7 @@ import com.yupi.yuaicodemother.model.entity.ChatHistory;
 import com.yupi.yuaicodemother.mapper.ChatHistoryMapper;
 import com.yupi.yuaicodemother.model.entity.User;
 import com.yupi.yuaicodemother.model.enums.ChatHistoryMessageTypeEnum;
+import com.yupi.yuaicodemother.model.enums.CodeGenTypeEnum;
 import com.yupi.yuaicodemother.service.AppService;
 import com.yupi.yuaicodemother.service.ChatHistoryService;
 import dev.langchain4j.data.message.AiMessage;
@@ -25,7 +26,9 @@ import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * 对话历史 服务层实现。
@@ -130,6 +133,19 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
      * @param chatHistoryQueryRequest
      * @return
      */
+    @Override
+    public int loadChatHistoryToMemory(Long appId,
+                                       MessageWindowChatMemory chatMemory,
+                                       int maxCount,
+                                       CodeGenTypeEnum codeGenType) {
+        if (codeGenType == CodeGenTypeEnum.VUE_PROJECT) {
+            chatMemory.clear();
+            log.info("Skip loading persisted chat history into Vue project memory, appId={}", appId);
+            return 0;
+        }
+        return loadChatHistoryToMemory(appId, chatMemory, maxCount);
+    }
+
     @Override
     public QueryWrapper getQueryWrapper(ChatHistoryQueryRequest chatHistoryQueryRequest) {
         QueryWrapper queryWrapper = QueryWrapper.create();

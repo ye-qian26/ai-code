@@ -54,4 +54,13 @@ public interface AiCodeGeneratorService {
      */
     @SystemMessage(fromResource = "prompt/codegen-vue-project-system-prompt.txt")
     TokenStream generateVueProjectCodeStream(@MemoryId long appId, @UserMessage String userMessage);
+
+    /**
+     * 修复 Vue 项目构建错误
+     *
+     * @param userMessage 构建错误和修复要求
+     * @return 修复结果摘要
+     */
+    @SystemMessage(fromResource = "prompt/code-repair-vue-project-system-prompt.txt")
+    String repairVueProjectBuild(@MemoryId long appId, @UserMessage String userMessage);
 }
