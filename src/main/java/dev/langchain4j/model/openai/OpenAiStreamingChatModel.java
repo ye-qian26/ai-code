@@ -4,6 +4,7 @@ import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.http.client.HttpClientBuilder;
 import dev.langchain4j.internal.ExceptionMapper;
 import dev.langchain4j.internal.ToolExecutionRequestBuilder;
+import dev.langchain4j.internal.ToolExecutionRequestSanitizer;
 import dev.langchain4j.model.ModelProvider;
 import dev.langchain4j.model.StreamingResponseHandler;
 import dev.langchain4j.model.chat.StreamingChatModel;
@@ -128,13 +129,7 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                     handle(partialResponse, toolBuilder, handler);
                 })
                 .onComplete(() -> {
-                    if (toolBuilder.hasToolExecutionRequests()) {
-                        try {
-                            handler.onCompleteToolExecutionRequest(toolBuilder.index(), toolBuilder.build());
-                        } catch (Exception e) {
-                            withLoggingExceptions(() -> handler.onError(e));
-                        }
-                    }
+                    emitCompleteToolExecutionRequest(toolBuilder, handler);
                     ChatResponse chatResponse = openAiResponseBuilder.build();
                     try {
                         handler.onCompleteResponse(chatResponse);
@@ -185,18 +180,19 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
 
                 int index = toolCall.index();
                 if (toolBuilder.index() != index) {
-                    try {
-                        handler.onCompleteToolExecutionRequest(toolBuilder.index(), toolBuilder.build());
-                    } catch (Exception e) {
-                        withLoggingExceptions(() -> handler.onError(e));
-                    }
+                    emitCompleteToolExecutionRequest(toolBuilder, handler);
                     toolBuilder.updateIndex(index);
                 }
 
-                String id = toolBuilder.updateId(toolCall.id());
-                String name = toolBuilder.updateName(toolCall.function().name());
+                FunctionCall functionCall = toolCall.function();
+                if (functionCall == null) {
+                    continue;
+                }
 
-                String partialArguments = toolCall.function().arguments();
+                String id = toolBuilder.updateId(toolCall.id());
+                String name = toolBuilder.updateName(functionCall.name());
+
+                String partialArguments = functionCall.arguments();
                 if (isNotNullOrEmpty(partialArguments)) {
                     toolBuilder.appendArguments(partialArguments);
 
@@ -212,6 +208,24 @@ public class OpenAiStreamingChatModel implements StreamingChatModel {
                     }
                 }
             }
+        }
+    }
+
+    private static void emitCompleteToolExecutionRequest(ToolExecutionRequestBuilder toolBuilder,
+                                                         StreamingChatResponseHandler handler) {
+        if (!toolBuilder.hasPendingToolExecutionRequest()) {
+            return;
+        }
+
+        ToolExecutionRequest completeToolExecutionRequest = ToolExecutionRequestSanitizer.sanitize(toolBuilder.build());
+        if (completeToolExecutionRequest == null) {
+            return;
+        }
+
+        try {
+            handler.onCompleteToolExecutionRequest(toolBuilder.index(), completeToolExecutionRequest);
+        } catch (Exception e) {
+            withLoggingExceptions(() -> handler.onError(e));
         }
     }
 

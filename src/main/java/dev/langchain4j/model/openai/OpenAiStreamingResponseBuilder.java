@@ -3,6 +3,7 @@ package dev.langchain4j.model.openai;
 import dev.langchain4j.Internal;
 import dev.langchain4j.agent.tool.ToolExecutionRequest;
 import dev.langchain4j.data.message.AiMessage;
+import dev.langchain4j.internal.ToolExecutionRequestSanitizer;
 import dev.langchain4j.model.chat.response.ChatResponse;
 import dev.langchain4j.model.openai.internal.chat.*;
 import dev.langchain4j.model.openai.internal.completion.CompletionChoice;
@@ -10,6 +11,8 @@ import dev.langchain4j.model.openai.internal.completion.CompletionResponse;
 import dev.langchain4j.model.openai.internal.shared.Usage;
 import dev.langchain4j.model.output.FinishReason;
 import dev.langchain4j.model.output.TokenUsage;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 import java.util.Map;
@@ -30,6 +33,8 @@ import static java.util.stream.Collectors.toList;
  */
 @Internal
 public class OpenAiStreamingResponseBuilder {
+
+    private static final Logger LOG = LoggerFactory.getLogger(OpenAiStreamingResponseBuilder.class);
 
     private final StringBuffer contentBuilder = new StringBuffer();
 
@@ -110,8 +115,6 @@ public class OpenAiStreamingResponseBuilder {
         }
 
         if (delta.toolCalls() != null) {
-            System.out.println("OLOLO " + delta.toolCalls()); // TODO
-
             for (ToolCall toolCall : delta.toolCalls()) {
 
                 ToolExecutionRequestBuilder builder = this.indexToToolExecutionRequestBuilder.computeIfAbsent(
@@ -124,6 +127,9 @@ public class OpenAiStreamingResponseBuilder {
                 }
 
                 FunctionCall functionCall = toolCall.function();
+                if (functionCall == null) {
+                    continue;
+                }
                 if (functionCall.name() != null) {
                     builder.nameBuilder.append(functionCall.name());
                 }
@@ -180,40 +186,51 @@ public class OpenAiStreamingResponseBuilder {
 
         String text = contentBuilder.toString();
 
-        String toolName = toolNameBuilder.toString();
-        if (!toolName.isEmpty()) {
-            ToolExecutionRequest toolExecutionRequest = ToolExecutionRequest.builder()
-                    .name(toolName)
-                    .arguments(toolArgumentsBuilder.toString())
-                    .build();
-
-            AiMessage aiMessage = isNullOrBlank(text) ?
-                    AiMessage.from(toolExecutionRequest) :
-                    AiMessage.from(text, singletonList(toolExecutionRequest));
-
-            return ChatResponse.builder()
-                    .aiMessage(aiMessage)
-                    .metadata(chatResponseMetadata)
-                    .build();
-        }
-
         if (!indexToToolExecutionRequestBuilder.isEmpty()) {
-            List<ToolExecutionRequest> toolExecutionRequests = indexToToolExecutionRequestBuilder.values().stream()
+            List<ToolExecutionRequest> toolExecutionRequests = indexToToolExecutionRequestBuilder.entrySet().stream()
+                    .sorted(Map.Entry.comparingByKey())
                     .map(it -> ToolExecutionRequest.builder()
-                            .id(it.idBuilder.toString())
-                            .name(it.nameBuilder.toString())
-                            .arguments(it.argumentsBuilder.toString())
+                            .id(it.getValue().idBuilder.toString())
+                            .name(it.getValue().nameBuilder.toString())
+                            .arguments(it.getValue().argumentsBuilder.toString())
                             .build())
+                    .map(ToolExecutionRequestSanitizer::sanitize)
+                    .filter(it -> it != null)
                     .collect(toList());
 
-            AiMessage aiMessage = isNullOrBlank(text) ?
-                    AiMessage.from(toolExecutionRequests) :
-                    AiMessage.from(text, toolExecutionRequests);
+            if (!toolExecutionRequests.isEmpty()) {
+                AiMessage aiMessage = isNullOrBlank(text) ?
+                        AiMessage.from(toolExecutionRequests) :
+                        AiMessage.from(text, toolExecutionRequests);
 
-            return ChatResponse.builder()
-                    .aiMessage(aiMessage)
-                    .metadata(chatResponseMetadata)
-                    .build();
+                return ChatResponse.builder()
+                        .aiMessage(aiMessage)
+                        .metadata(chatResponseMetadata)
+                        .build();
+            }
+
+            LOG.warn("Dropped malformed streamed tool call response with no valid indexed tool requests");
+        }
+
+        String toolName = toolNameBuilder.toString();
+        if (!toolName.isEmpty()) {
+            ToolExecutionRequest toolExecutionRequest = ToolExecutionRequestSanitizer.sanitize(ToolExecutionRequest.builder()
+                    .name(toolName)
+                    .arguments(toolArgumentsBuilder.toString())
+                    .build());
+
+            if (toolExecutionRequest != null) {
+                AiMessage aiMessage = isNullOrBlank(text) ?
+                        AiMessage.from(toolExecutionRequest) :
+                        AiMessage.from(text, singletonList(toolExecutionRequest));
+
+                return ChatResponse.builder()
+                        .aiMessage(aiMessage)
+                        .metadata(chatResponseMetadata)
+                        .build();
+            }
+
+            LOG.warn("Dropped malformed streamed legacy function call response. toolName={}", toolName);
         }
 
         if (!isNullOrBlank(text)) {

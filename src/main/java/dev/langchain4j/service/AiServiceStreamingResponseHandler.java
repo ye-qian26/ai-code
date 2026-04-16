@@ -9,6 +9,7 @@ import dev.langchain4j.data.message.ToolExecutionResultMessage;
 import dev.langchain4j.guardrail.ChatExecutor;
 import dev.langchain4j.guardrail.GuardrailRequestParams;
 import dev.langchain4j.guardrail.OutputGuardrailRequest;
+import dev.langchain4j.internal.ToolExecutionRequestSanitizer;
 import dev.langchain4j.memory.ChatMemory;
 import dev.langchain4j.model.chat.request.ChatRequest;
 import dev.langchain4j.model.chat.response.ChatResponse;
@@ -24,6 +25,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 import static dev.langchain4j.internal.Utils.copy;
 import static dev.langchain4j.internal.ValidationUtils.ensureNotNull;
@@ -113,13 +115,17 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
 
     @Override
     public void onCompleteResponse(ChatResponse completeResponse) {
-        AiMessage aiMessage = completeResponse.aiMessage();
+        AiMessage aiMessage = sanitizeAiMessage(completeResponse.aiMessage());
         addToMemory(aiMessage);
 
         if (aiMessage.hasToolExecutionRequests()) {
             for (ToolExecutionRequest toolExecutionRequest : aiMessage.toolExecutionRequests()) {
                 String toolName = toolExecutionRequest.name();
                 ToolExecutor toolExecutor = toolExecutors.get(toolName);
+                if (toolExecutor == null) {
+                    LOG.warn("Skipping tool execution because no executor was found. toolName={}", toolName);
+                    continue;
+                }
                 String toolExecutionResult = toolExecutor.execute(toolExecutionRequest, memoryId);
                 ToolExecutionResultMessage toolExecutionResultMessage =
                         ToolExecutionResultMessage.from(toolExecutionRequest, toolExecutionResult);
@@ -197,6 +203,25 @@ class AiServiceStreamingResponseHandler implements StreamingChatResponseHandler 
                 completeResponseHandler.accept(finalChatResponse);
             }
         }
+    }
+
+    private AiMessage sanitizeAiMessage(AiMessage aiMessage) {
+        if (aiMessage == null || !aiMessage.hasToolExecutionRequests()) {
+            return aiMessage;
+        }
+
+        List<ToolExecutionRequest> sanitizedToolExecutionRequests = aiMessage.toolExecutionRequests().stream()
+                .map(ToolExecutionRequestSanitizer::sanitize)
+                .filter(it -> it != null)
+                .collect(Collectors.toList());
+
+        if (sanitizedToolExecutionRequests.isEmpty()) {
+            return aiMessage.text() == null ? AiMessage.from("") : AiMessage.from(aiMessage.text());
+        }
+
+        return aiMessage.text() == null
+                ? AiMessage.from(sanitizedToolExecutionRequests)
+                : AiMessage.from(aiMessage.text(), sanitizedToolExecutionRequests);
     }
 
     private ChatMemory getMemory() {

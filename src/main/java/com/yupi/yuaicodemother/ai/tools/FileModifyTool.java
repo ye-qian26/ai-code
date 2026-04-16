@@ -1,7 +1,10 @@
 package com.yupi.yuaicodemother.ai.tools;
 
 import cn.hutool.json.JSONObject;
-import com.yupi.yuaicodemother.constant.AppConstant;
+import com.yupi.yuaicodemother.core.builder.VueProjectFileValidationResult;
+import com.yupi.yuaicodemother.core.builder.VueProjectFileValidator;
+import com.yupi.yuaicodemother.core.builder.VueProjectPathResolver;
+import com.yupi.yuaicodemother.core.builder.VueProjectScaffolder;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -9,55 +12,108 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
-/**
- * 文件修改工具
- * 支持 AI 通过工具调用的方式修改文件内容
- */
 @Slf4j
 @Component
 public class FileModifyTool extends BaseTool {
 
-    @Tool("修改文件内容，用新内容替换指定的旧内容")
+    private static final String VALIDATION_FAILED_PREFIX = "SYNTAX_VALIDATION_FAILED";
+    private static final String PROTECTED_FILE_PREFIX = "PROTECTED_FILE_REJECTED";
+    private static final String MODIFY_FAILED_PREFIX = "MODIFY_FILE_FAILED";
+
+    private final VueProjectPathResolver pathResolver;
+    private final VueProjectScaffolder vueProjectScaffolder;
+    private final VueProjectFileValidator vueProjectFileValidator;
+
+    public FileModifyTool(
+            VueProjectPathResolver pathResolver,
+            VueProjectScaffolder vueProjectScaffolder,
+            VueProjectFileValidator vueProjectFileValidator
+    ) {
+        this.pathResolver = pathResolver;
+        this.vueProjectScaffolder = vueProjectScaffolder;
+        this.vueProjectFileValidator = vueProjectFileValidator;
+    }
+
+    @Tool("Modify part of an existing file inside the generated Vue project.")
     public String modifyFile(
-            @P("文件的相对路径")
+            @P("Relative file path inside the Vue project.")
             String relativeFilePath,
-            @P("要替换的旧内容")
+            @P("Exact existing content to replace.")
             String oldContent,
-            @P("替换后的新内容")
+            @P("New content that replaces the old content.")
             String newContent,
             @ToolMemoryId Long appId
     ) {
+        String normalizedPath;
         try {
-            Path path = Paths.get(relativeFilePath);
-            if (!path.isAbsolute()) {
-                String projectDirName = "vue_project_" + appId;
-                Path projectRoot = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName);
-                path = projectRoot.resolve(relativeFilePath);
+            normalizedPath = pathResolver.normalizeRelativePath(relativeFilePath);
+            if (vueProjectScaffolder.isProtectedPath(normalizedPath)) {
+                return PROTECTED_FILE_PREFIX + ": " + normalizedPath
+                        + ". This scaffold file is managed by the system. Edit business files instead.";
             }
-            if (!Files.exists(path) || !Files.isRegularFile(path)) {
-                return "错误：文件不存在或不是文件 - " + relativeFilePath;
+
+            Path targetPath = pathResolver.resolvePath(appId, normalizedPath);
+            if (!Files.exists(targetPath) || !Files.isRegularFile(targetPath)) {
+                return MODIFY_FAILED_PREFIX + ": file does not exist -> " + normalizedPath;
             }
-            String originalContent = Files.readString(path);
+
+            String originalContent = Files.readString(targetPath, StandardCharsets.UTF_8);
             if (!originalContent.contains(oldContent)) {
-                return "警告：文件中未找到要替换的内容，文件未修改 - " + relativeFilePath;
+                return MODIFY_FAILED_PREFIX + ": target snippet not found -> " + normalizedPath;
             }
-            String modifiedContent = originalContent.replace(oldContent, newContent);
+
+            String modifiedContent = originalContent.replaceFirst(
+                    Pattern.quote(oldContent),
+                    Matcher.quoteReplacement(newContent)
+            );
             if (originalContent.equals(modifiedContent)) {
-                return "信息：替换后文件内容未发生变化 - " + relativeFilePath;
+                return MODIFY_FAILED_PREFIX + ": no effective change -> " + normalizedPath;
             }
-            Files.writeString(path, modifiedContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            log.info("成功修改文件: {}", path.toAbsolutePath());
-            return "文件修改成功: " + relativeFilePath;
-        } catch (IOException e) {
-            String errorMessage = "修改文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+
+            Files.writeString(
+                    targetPath,
+                    modifiedContent,
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.CREATE,
+                    StandardOpenOption.TRUNCATE_EXISTING
+            );
+
+            VueProjectFileValidationResult validationResult = vueProjectFileValidator.validate(targetPath);
+            if (!validationResult.valid()) {
+                rollback(targetPath, originalContent);
+                return buildValidationFailureMessage(normalizedPath, validationResult.message(), "modifyFile");
+            }
+
+            log.info("Modified Vue project file: {}", targetPath.toAbsolutePath());
+            return "MODIFY_FILE_SUCCESS: " + normalizedPath;
+        } catch (Exception e) {
+            String errorMessage = MODIFY_FAILED_PREFIX + ": " + relativeFilePath + " -> " + e.getMessage();
             log.error(errorMessage, e);
             return errorMessage;
         }
+    }
+
+    private void rollback(Path targetPath, String originalContent) throws IOException {
+        Files.writeString(
+                targetPath,
+                originalContent,
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING
+        );
+    }
+
+    private String buildValidationFailureMessage(String relativeFilePath, String validationMessage, String retryTool) {
+        return VALIDATION_FAILED_PREFIX + ": " + relativeFilePath + " -> " + validationMessage
+                + ". The file has been rolled back. Fix the syntax and retry " + retryTool
+                + " for the same file path.";
     }
 
     @Override
@@ -67,7 +123,7 @@ public class FileModifyTool extends BaseTool {
 
     @Override
     public String getDisplayName() {
-        return "修改文件";
+        return "Modify File";
     }
 
     @Override
@@ -75,16 +131,15 @@ public class FileModifyTool extends BaseTool {
         String relativeFilePath = arguments.getStr("relativeFilePath");
         String oldContent = arguments.getStr("oldContent");
         String newContent = arguments.getStr("newContent");
-        // 显示对比内容
         return String.format("""
-                [工具调用] %s %s
-                
-                替换前：
+                [Tool] %s %s
+
+                Old content
                 ```
                 %s
                 ```
-                
-                替换后：
+
+                New content
                 ```
                 %s
                 ```

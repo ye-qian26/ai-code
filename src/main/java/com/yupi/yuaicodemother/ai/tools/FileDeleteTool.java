@@ -1,7 +1,8 @@
 package com.yupi.yuaicodemother.ai.tools;
 
 import cn.hutool.json.JSONObject;
-import com.yupi.yuaicodemother.constant.AppConstant;
+import com.yupi.yuaicodemother.core.builder.VueProjectPathResolver;
+import com.yupi.yuaicodemother.core.builder.VueProjectScaffolder;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -11,66 +12,54 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.util.Set;
 
-/**
- * 文件删除工具
- * 支持 AI 通过工具调用的方式删除文件
- */
 @Slf4j
 @Component
 public class FileDeleteTool extends BaseTool {
 
-    @Tool("删除指定路径的文件")
+    private static final Set<String> EXTRA_PROTECTED_FILES = Set.of(
+            "package-lock.json",
+            "yarn.lock",
+            "pnpm-lock.yaml"
+    );
+
+    private final VueProjectPathResolver pathResolver;
+    private final VueProjectScaffolder vueProjectScaffolder;
+
+    public FileDeleteTool(VueProjectPathResolver pathResolver, VueProjectScaffolder vueProjectScaffolder) {
+        this.pathResolver = pathResolver;
+        this.vueProjectScaffolder = vueProjectScaffolder;
+    }
+
+    @Tool("Delete a file inside the generated Vue project.")
     public String deleteFile(
-            @P("文件的相对路径")
+            @P("Relative file path inside the Vue project.")
             String relativeFilePath,
             @ToolMemoryId Long appId
     ) {
         try {
-            Path path = Paths.get(relativeFilePath);
-            if (!path.isAbsolute()) {
-                String projectDirName = "vue_project_" + appId;
-                Path projectRoot = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName);
-                path = projectRoot.resolve(relativeFilePath);
+            String normalizedPath = pathResolver.normalizeRelativePath(relativeFilePath);
+            if (vueProjectScaffolder.isProtectedPath(normalizedPath) || EXTRA_PROTECTED_FILES.contains(normalizedPath)) {
+                return "DELETE_FILE_REJECTED: " + normalizedPath + ". This file is protected.";
             }
-            if (!Files.exists(path)) {
-                return "警告：文件不存在，无需删除 - " + relativeFilePath;
+
+            Path targetPath = pathResolver.resolvePath(appId, normalizedPath);
+            if (!Files.exists(targetPath)) {
+                return "DELETE_FILE_SKIPPED: file does not exist -> " + normalizedPath;
             }
-            if (!Files.isRegularFile(path)) {
-                return "错误：指定路径不是文件，无法删除 - " + relativeFilePath;
+            if (!Files.isRegularFile(targetPath)) {
+                return "DELETE_FILE_FAILED: target is not a file -> " + normalizedPath;
             }
-            // 安全检查：避免删除重要文件
-            String fileName = path.getFileName().toString();
-            if (isImportantFile(fileName)) {
-                return "错误：不允许删除重要文件 - " + fileName;
-            }
-            Files.delete(path);
-            log.info("成功删除文件: {}", path.toAbsolutePath());
-            return "文件删除成功: " + relativeFilePath;
-        } catch (IOException e) {
-            String errorMessage = "删除文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+
+            Files.delete(targetPath);
+            log.info("Deleted Vue project file: {}", targetPath.toAbsolutePath());
+            return "DELETE_FILE_SUCCESS: " + normalizedPath;
+        } catch (IOException | IllegalArgumentException e) {
+            String errorMessage = "DELETE_FILE_FAILED: " + relativeFilePath + " -> " + e.getMessage();
             log.error(errorMessage, e);
             return errorMessage;
         }
-    }
-
-    /**
-     * 判断是否是重要文件，不允许删除
-     */
-    private boolean isImportantFile(String fileName) {
-        String[] importantFiles = {
-                "package.json", "package-lock.json", "yarn.lock", "pnpm-lock.yaml",
-                "vite.config.js", "vite.config.ts", "vue.config.js",
-                "tsconfig.json", "tsconfig.app.json", "tsconfig.node.json",
-                "index.html", "main.js", "main.ts", "App.vue", ".gitignore", "README.md"
-        };
-        for (String important : importantFiles) {
-            if (important.equalsIgnoreCase(fileName)) {
-                return true;
-            }
-        }
-        return false;
     }
 
     @Override
@@ -80,12 +69,12 @@ public class FileDeleteTool extends BaseTool {
 
     @Override
     public String getDisplayName() {
-        return "删除文件";
+        return "Delete File";
     }
 
     @Override
     public String generateToolExecutedResult(JSONObject arguments) {
         String relativeFilePath = arguments.getStr("relativeFilePath");
-        return String.format(" [工具调用] %s %s", getDisplayName(), relativeFilePath);
+        return String.format("[Tool] %s %s", getDisplayName(), relativeFilePath);
     }
 }
