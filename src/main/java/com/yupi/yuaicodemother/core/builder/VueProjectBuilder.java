@@ -1,149 +1,155 @@
 package com.yupi.yuaicodemother.core.builder;
 
-import cn.hutool.core.util.RuntimeUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-/**
- * 构建 Vue 项目
- */
 @Slf4j
 @Component
 public class VueProjectBuilder {
 
-    /**
-     * 异步构建 Vue 项目
-     *
-     * @param projectPath
-     */
+    private static final int INSTALL_TIMEOUT_SECONDS = 300;
+    private static final int BUILD_TIMEOUT_SECONDS = 180;
+
     public void buildProjectAsync(String projectPath) {
-        Thread.ofVirtual().name("vue-builder-" + System.currentTimeMillis())
+        Thread.ofVirtual()
+                .name("vue-builder-" + System.currentTimeMillis())
                 .start(() -> {
                     try {
                         buildProject(projectPath);
                     } catch (Exception e) {
-                        log.error("异步构建 Vue 项目时发生异常: {}", e.getMessage(), e);
+                        log.error("Failed to build Vue project asynchronously: {}", projectPath, e);
                     }
                 });
     }
 
-    /**
-     * 构建 Vue 项目
-     *
-     * @param projectPath 项目根目录路径
-     * @return 是否构建成功
-     */
     public boolean buildProject(String projectPath) {
         File projectDir = new File(projectPath);
         if (!projectDir.exists() || !projectDir.isDirectory()) {
-            log.error("项目目录不存在：{}", projectPath);
+            log.error("Vue project directory does not exist: {}", projectPath);
             return false;
         }
-        // 检查是否有 package.json 文件
+
         File packageJsonFile = new File(projectDir, "package.json");
         if (!packageJsonFile.exists()) {
-            log.error("项目目录中没有 package.json 文件：{}", projectPath);
+            log.error("package.json is missing in Vue project: {}", projectPath);
             return false;
         }
-        log.info("开始构建 Vue 项目：{}", projectPath);
-        // 执行 npm install
-        if (!executeNpmInstall(projectDir)) {
-            log.error("npm install 执行失败：{}", projectPath);
+
+        log.info("Start building Vue project: {}", projectPath);
+        if (!ensureDependenciesInstalled(projectDir)) {
             return false;
         }
-        // 执行 npm run build
-        if (!executeNpmBuild(projectDir)) {
-            log.error("npm run build 执行失败：{}", projectPath);
+        if (!executeNpmCommand(projectDir, BUILD_TIMEOUT_SECONDS, "run", "build")) {
+            log.error("npm run build failed for Vue project: {}", projectPath);
             return false;
         }
-        // 验证 dist 目录是否生成
+
         File distDir = new File(projectDir, "dist");
         if (!distDir.exists() || !distDir.isDirectory()) {
-            log.error("构建完成但 dist 目录未生成：{}", projectPath);
+            log.error("dist directory was not generated for Vue project: {}", projectPath);
             return false;
         }
-        log.info("Vue 项目构建成功，dist 目录：{}", projectPath);
+
+        log.info("Vue project build succeeded: {}", projectPath);
         return true;
     }
 
-    /**
-     * 执行 npm install 命令
-     */
-    private boolean executeNpmInstall(File projectDir) {
-        log.info("执行 npm install...");
-        String command = String.format("%s install", buildCommand("npm"));
-        return executeCommand(projectDir, command, 300); // 5分钟超时
-    }
-
-    /**
-     * 执行 npm run build 命令
-     */
-    private boolean executeNpmBuild(File projectDir) {
-        log.info("执行 npm run build...");
-        String command = String.format("%s run build", buildCommand("npm"));
-        return executeCommand(projectDir, command, 180); // 3分钟超时
-    }
-
-    /**
-     * 根据操作系统构造命令
-     *
-     * @param baseCommand
-     * @return
-     */
-    private String buildCommand(String baseCommand) {
-        if (isWindows()) {
-            return baseCommand + ".cmd";
+    public boolean ensureDependenciesInstalled(File projectDir) {
+        if (hasInstalledDependencies(projectDir)) {
+            log.info("Skip npm install because dependencies already exist: {}", projectDir.getAbsolutePath());
+            return true;
         }
-        return baseCommand;
+        return executeNpmCommand(projectDir, INSTALL_TIMEOUT_SECONDS, "install");
     }
 
-    /**
-     * 操作系统检测
-     *
-     * @return
-     */
-    private boolean isWindows() {
-        return System.getProperty("os.name").toLowerCase().contains("windows");
+    private boolean hasInstalledDependencies(File projectDir) {
+        Path nodeModulesPath = projectDir.toPath().resolve("node_modules");
+        return Files.isDirectory(nodeModulesPath.resolve("@vue").resolve("compiler-sfc"))
+                && Files.isDirectory(nodeModulesPath.resolve("esbuild"));
     }
 
-    /**
-     * 执行命令
-     *
-     * @param workingDir     工作目录
-     * @param command        命令字符串
-     * @param timeoutSeconds 超时时间（秒）
-     * @return 是否执行成功
-     */
-    private boolean executeCommand(File workingDir, String command, int timeoutSeconds) {
+    private boolean executeNpmCommand(File projectDir, int timeoutSeconds, String... args) {
+        List<String> command = new ArrayList<>();
+        command.add(isWindows() ? "npm.cmd" : "npm");
+        command.addAll(List.of(args));
+
+        String printableCommand = String.join(" ", command);
+        log.info("Executing command in {}: {}", projectDir.getAbsolutePath(), printableCommand);
+
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.directory(projectDir);
+        processBuilder.redirectErrorStream(true);
+
+        StringBuilder output = new StringBuilder();
         try {
-            log.info("在目录 {} 中执行命令: {}", workingDir.getAbsolutePath(), command);
-            Process process = RuntimeUtil.exec(
-                    null,
-                    workingDir,
-                    command.split("\\s+") // 命令分割为数组
-            );
-            // 等待进程完成，设置超时
+            Process process = processBuilder.start();
+            Thread outputReader = Thread.ofVirtual()
+                    .name("vue-command-reader-" + System.currentTimeMillis())
+                    .start(() -> readProcessOutput(process, output));
+
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
-                log.error("命令执行超时（{}秒），强制终止进程", timeoutSeconds);
                 process.destroyForcibly();
+                outputReader.join(TimeUnit.SECONDS.toMillis(5));
+                log.error("Command timed out after {} seconds: {}", timeoutSeconds, printableCommand);
+                logCommandOutput(output);
                 return false;
             }
+
+            outputReader.join(TimeUnit.SECONDS.toMillis(5));
             int exitCode = process.exitValue();
-            if (exitCode == 0) {
-                log.info("命令执行成功: {}", command);
-                return true;
-            } else {
-                log.error("命令执行失败，退出码: {}", exitCode);
+            if (exitCode != 0) {
+                log.error("Command failed with exit code {}: {}", exitCode, printableCommand);
+                logCommandOutput(output);
                 return false;
             }
+
+            logCommandOutput(output);
+            return true;
         } catch (Exception e) {
-            log.error("执行命令失败: {}, 错误信息: {}", command, e.getMessage());
+            log.error("Failed to execute command: {}", printableCommand, e);
+            logCommandOutput(output);
             return false;
         }
     }
 
+    private void readProcessOutput(Process process, StringBuilder output) {
+        try (BufferedReader reader = new BufferedReader(
+                new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                synchronized (output) {
+                    output.append(line).append(System.lineSeparator());
+                }
+                log.info("[vue-project] {}", line);
+            }
+        } catch (IOException e) {
+            log.warn("Failed to read Vue project command output", e);
+        }
+    }
+
+    private void logCommandOutput(StringBuilder output) {
+        String text;
+        synchronized (output) {
+            text = output.toString().trim();
+        }
+        if (!text.isEmpty()) {
+            log.info("Command output:\n{}", text);
+        }
+    }
+
+    private boolean isWindows() {
+        return System.getProperty("os.name").toLowerCase().contains("windows");
+    }
 }

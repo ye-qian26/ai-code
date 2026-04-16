@@ -2,6 +2,8 @@
 application-local.yml
 application-prod.yml
 tmp
+/AGENTS.md
+/error*.txt
 
 HELP.md
 target/

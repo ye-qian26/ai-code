@@ -2,7 +2,10 @@ package com.yupi.yuaicodemother.ai.tools;
 
 import cn.hutool.core.io.FileUtil;
 import cn.hutool.json.JSONObject;
-import com.yupi.yuaicodemother.constant.AppConstant;
+import com.yupi.yuaicodemother.core.builder.VueProjectFileValidationResult;
+import com.yupi.yuaicodemother.core.builder.VueProjectFileValidator;
+import com.yupi.yuaicodemother.core.builder.VueProjectPathResolver;
+import com.yupi.yuaicodemother.core.builder.VueProjectScaffolder;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
@@ -10,52 +13,91 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardOpenOption;
 
-/**
- * 文件写入工具
- * 支持 AI 通过工具调用的方式写入文件
- */
 @Slf4j
 @Component
 public class FileWriteTool extends BaseTool {
 
-    @Tool("写入文件到指定路径")
+    private static final String VALIDATION_FAILED_PREFIX = "SYNTAX_VALIDATION_FAILED";
+    private static final String PROTECTED_FILE_PREFIX = "PROTECTED_FILE_REJECTED";
+    private static final String WRITE_FAILED_PREFIX = "WRITE_FILE_FAILED";
+
+    private final VueProjectPathResolver pathResolver;
+    private final VueProjectScaffolder vueProjectScaffolder;
+    private final VueProjectFileValidator vueProjectFileValidator;
+
+    public FileWriteTool(
+            VueProjectPathResolver pathResolver,
+            VueProjectScaffolder vueProjectScaffolder,
+            VueProjectFileValidator vueProjectFileValidator
+    ) {
+        this.pathResolver = pathResolver;
+        this.vueProjectScaffolder = vueProjectScaffolder;
+        this.vueProjectFileValidator = vueProjectFileValidator;
+    }
+
+    @Tool("Create or overwrite a file inside the generated Vue project.")
     public String writeFile(
-            @P("文件的相对路径")
+            @P("Relative file path inside the Vue project.")
             String relativeFilePath,
-            @P("要写入文件的内容")
+            @P("Full file content to write.")
             String content,
             @ToolMemoryId Long appId
     ) {
+        String normalizedPath;
         try {
-            Path path = Paths.get(relativeFilePath);
-            if (!path.isAbsolute()) {
-                // 相对路径处理，创建基于 appId 的项目目录
-                String projectDirName = "vue_project_" + appId;
-                Path projectRoot = Paths.get(AppConstant.CODE_OUTPUT_ROOT_DIR, projectDirName);
-                path = projectRoot.resolve(relativeFilePath);
+            normalizedPath = pathResolver.normalizeRelativePath(relativeFilePath);
+            if (vueProjectScaffolder.isProtectedPath(normalizedPath)) {
+                return PROTECTED_FILE_PREFIX + ": " + normalizedPath
+                        + ". This scaffold file is managed by the system. Edit business files instead.";
             }
-            // 创建父目录（如果不存在）
-            Path parentDir = path.getParent();
-            if (parentDir != null) {
-                Files.createDirectories(parentDir);
+
+            Path targetPath = pathResolver.resolvePath(appId, normalizedPath);
+            Path parent = targetPath.getParent();
+            if (parent != null) {
+                Files.createDirectories(parent);
             }
-            // 写入文件内容
-            Files.write(path, content.getBytes(),
+
+            byte[] backup = Files.exists(targetPath) ? Files.readAllBytes(targetPath) : null;
+            Files.writeString(
+                    targetPath,
+                    content,
+                    StandardCharsets.UTF_8,
                     StandardOpenOption.CREATE,
-                    StandardOpenOption.TRUNCATE_EXISTING);
-            log.info("成功写入文件: {}", path.toAbsolutePath());
-            // 注意要返回相对路径，不能让 AI 把文件绝对路径返回给用户
-            return "文件写入成功: " + relativeFilePath;
-        } catch (IOException e) {
-            String errorMessage = "文件写入失败: " + relativeFilePath + ", 错误: " + e.getMessage();
+                    StandardOpenOption.TRUNCATE_EXISTING
+            );
+
+            VueProjectFileValidationResult validationResult = vueProjectFileValidator.validate(targetPath);
+            if (!validationResult.valid()) {
+                rollback(targetPath, backup);
+                return buildValidationFailureMessage(normalizedPath, validationResult.message(), "writeFile");
+            }
+
+            log.info("Wrote Vue project file: {}", targetPath.toAbsolutePath());
+            return "WRITE_FILE_SUCCESS: " + normalizedPath;
+        } catch (Exception e) {
+            String errorMessage = WRITE_FAILED_PREFIX + ": " + relativeFilePath + " -> " + e.getMessage();
             log.error(errorMessage, e);
             return errorMessage;
         }
+    }
+
+    private void rollback(Path targetPath, byte[] backup) throws IOException {
+        if (backup == null) {
+            Files.deleteIfExists(targetPath);
+            return;
+        }
+        Files.write(targetPath, backup, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    private String buildValidationFailureMessage(String relativeFilePath, String validationMessage, String retryTool) {
+        return VALIDATION_FAILED_PREFIX + ": " + relativeFilePath + " -> " + validationMessage
+                + ". The file has been rolled back. Fix the syntax and retry " + retryTool
+                + " for the same file path.";
     }
 
     @Override
@@ -65,7 +107,7 @@ public class FileWriteTool extends BaseTool {
 
     @Override
     public String getDisplayName() {
-        return "写入文件";
+        return "Write File";
     }
 
     @Override
@@ -74,7 +116,7 @@ public class FileWriteTool extends BaseTool {
         String suffix = FileUtil.getSuffix(relativeFilePath);
         String content = arguments.getStr("content");
         return String.format("""
-                        [工具调用] %s %s
+                        [Tool] %s %s
                         ```%s
                         %s
                         ```
