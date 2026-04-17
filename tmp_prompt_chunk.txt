@@ -1,0 +1,21 @@
+  const rawPrompt = userInput.value.trim()
+  let finalPrompt = rawPrompt
+  const displayContent = rawPrompt
+
+  if (selectedElementInfo.value) {
+    finalPrompt += '\n\n[当前选中元素上下文]'
+    finalPrompt += `\n- 标签: ${selectedElementInfo.value.tagName.toLowerCase()}`
+    finalPrompt += `\n- 选择�? ${selectedElementInfo.value.selector}`
+    if (selectedElementInfo.value.id) {
+      finalPrompt += `\n- ID: ${selectedElementInfo.value.id}`
+    }
+    if (selectedElementInfo.value.pagePath) {
+      finalPrompt += `\n- 页面路径: ${selectedElementInfo.value.pagePath}`
+    }
+    if (selectedElementInfo.value.textContent) {
+      finalPrompt += `\n- 文本片段: ${selectedElementInfo.value.textContent.slice(0, 100)}`
+    }
+  }
+
+  finalPrompt = buildGenerationPrompt(finalPrompt)
+
