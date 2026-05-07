@@ -28,5 +28,6 @@ public interface AppConstant {
     /**
      * 应用部署域名
      */
-    String CODE_DEPLOY_HOST = "http://8.134.88.199:38081";
+//    String CODE_DEPLOY_HOST = "http://8.134.88.199:38081";
+    String CODE_DEPLOY_HOST = "http://localhost:8081";
 }

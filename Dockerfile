@@ -1,7 +1,11 @@
 FROM eclipse-temurin:21-jre
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends chromium chromium-driver fonts-noto-cjk \
+    && apt-get install -y --no-install-recommends curl ca-certificates chromium chromium-driver fonts-noto-cjk \
+    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+    && apt-get install -y --no-install-recommends nodejs \
+    && node -v \
+    && npm -v \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
